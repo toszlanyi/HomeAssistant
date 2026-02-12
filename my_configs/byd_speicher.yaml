@@ -1,0 +1,48 @@
+template:
+  - sensor:
+      - name: "Solis Batterie Spannung"
+        unique_id: solis_batt_voltage
+        unit_of_measurement: "V"
+        device_class: voltage
+        state_class: measurement
+        icon: mdi:sine-wave
+        state: "{{ states('sensor.solis_raw_batt_v') | float(0) }}"
+
+      - name: "Solis Batterie Strom"
+        unique_id: solis_batt_current
+        unit_of_measurement: "A"
+        device_class: current
+        state_class: measurement
+        icon: mdi:current-dc
+        state: "{{ states('sensor.solis_raw_batt_i') | float(0) }}"
+
+      - name: "Solis Batterie Leistung"
+        unique_id: solis_batt_power
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        icon: mdi:battery-charging-100
+        state: "{{ states('sensor.solis_raw_batt_p') | float(0) }}"
+
+      - name: "Solis Batterie SoC"
+        unique_id: solis_batt_soc
+        unit_of_measurement: "%"
+        device_class: battery
+        state_class: measurement
+        icon: mdi:battery-medium
+        state: "{{ states('sensor.solis_raw_batt_soc') | float(0) }}"
+
+      - name: "Solis Batterie SoH"
+        unique_id: solis_batt_soh
+        unit_of_measurement: "%"
+        state_class: measurement
+        icon: mdi:battery-heart-variant
+        state: "{{ states('sensor.solis_raw_batt_soh') | float(0) }}"
+
+      - name: "Solis Hausverbrauch"
+        unique_id: solis_house_load
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        icon: mdi:home-lightning-bolt
+        state: "{{ states('sensor.solis_raw_house_load') | float(0) }}"
