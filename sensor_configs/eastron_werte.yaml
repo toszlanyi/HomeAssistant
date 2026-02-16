@@ -1,0 +1,113 @@
+template:
+  - sensor:
+      # --- SPANNUNGEN (3x Avg, 3x Min) ---
+      - name: "Netzspannung L1"
+        unique_id: eastron_u1
+        unit_of_measurement: "V"
+        device_class: voltage
+        state_class: measurement
+        icon: mdi:vlc
+        state: "{{ states('sensor.eastron_raw_u1') | float(0) | round(1) }}"
+      - name: "Netzspannung L1 Min"
+        unique_id: eastron_u1_min
+        unit_of_measurement: "V"
+        device_class: voltage
+        icon: mdi:arrow-down-bold
+        state: "{{ states('sensor.eastron_raw_u1_min') | float(0) | round(1) }}"
+
+      - name: "Netzspannung L2"
+        unique_id: eastron_u2
+        unit_of_measurement: "V"
+        device_class: voltage
+        state_class: measurement
+        icon: mdi:vlc
+        state: "{{ states('sensor.eastron_raw_u2') | float(0) | round(1) }}"
+      - name: "Netzspannung L2 Min"
+        unique_id: eastron_u2_min
+        unit_of_measurement: "V"
+        device_class: voltage
+        icon: mdi:arrow-down-bold
+        state: "{{ states('sensor.eastron_raw_u2_min') | float(0) | round(1) }}"
+
+      - name: "Netzspannung L3"
+        unique_id: eastron_u3
+        unit_of_measurement: "V"
+        device_class: voltage
+        state_class: measurement
+        icon: mdi:vlc
+        state: "{{ states('sensor.eastron_raw_u3') | float(0) | round(1) }}"
+      - name: "Netzspannung L3 Min"
+        unique_id: eastron_u3_min
+        unit_of_measurement: "V"
+        device_class: voltage
+        icon: mdi:arrow-down-bold
+        state: "{{ states('sensor.eastron_raw_u3_min') | float(0) | round(1) }}"
+
+      # --- STRÖME (3x) ---
+      - name: "Netzstrom L1"
+        unique_id: eastron_i1
+        unit_of_measurement: "A"
+        device_class: current
+        state_class: measurement
+        icon: mdi:current-ac
+        state: "{{ states('sensor.eastron_raw_i1') | float(0) | round(2) }}"
+      - name: "Netzstrom L2"
+        unique_id: eastron_i2
+        unit_of_measurement: "A"
+        device_class: current
+        state_class: measurement
+        icon: mdi:current-ac
+        state: "{{ states('sensor.eastron_raw_i2') | float(0) | round(2) }}"
+      - name: "Netzstrom L3"
+        unique_id: eastron_i3
+        unit_of_measurement: "A"
+        device_class: current
+        state_class: measurement
+        icon: mdi:current-ac
+        state: "{{ states('sensor.eastron_raw_i3') | float(0) | round(2) }}"
+
+      # --- LEISTUNGEN (3x Phasen, 1x Gesamt) ---
+      - name: "Netzleistung L1"
+        unique_id: eastron_p1
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        icon: mdi:flash
+        state: "{{ states('sensor.eastron_raw_p1') | float(0) | round(1) }}"
+      - name: "Netzleistung L2"
+        unique_id: eastron_p2
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        icon: mdi:flash
+        state: "{{ states('sensor.eastron_raw_p2') | float(0) | round(1) }}"
+      - name: "Netzleistung L3"
+        unique_id: eastron_p3
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        icon: mdi:flash
+        state: "{{ states('sensor.eastron_raw_p3') | float(0) | round(1) }}"
+      - name: "Netzleistung Gesamt"
+        unique_id: eastron_p_total
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        icon: mdi:home-import-export
+        state: "{{ -(states('sensor.eastron_raw_p_tot') | float(0)) | round(1) }}" # Vorzeichenumkehr
+
+      # --- ENERGIE (Zählerstände) ---
+      - name: "Netzbezug Gesamt"
+        unique_id: eastron_energy_import
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+        icon: mdi:transmission-tower-export
+        state: "{{ states('sensor.eastron_raw_e_imp') | float(0) | round(2) }}"
+      - name: "Netzeinspeisung Gesamt"
+        unique_id: eastron_energy_export
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+        icon: mdi:transmission-tower-import
+        state: "{{ states('sensor.eastron_raw_e_exp') | float(0) | round(2) }}"

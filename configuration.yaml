@@ -12,4 +12,11 @@ scene: !include scenes.yaml
 
 # Konfigurationen
 homeassistant:
-  packages: !include_dir_named my_configs
+  packages: !include_dir_named sensor_configs
+
+# nur krasse Sachen loggen
+#logger:
+#  default: info
+#  logs:
+#    homeassistant.components.modbus: fatal
+#    pymodbus.logging: fatal

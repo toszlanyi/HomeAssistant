@@ -30,7 +30,7 @@ def task_solis_battery():
         # Modbus Response Header ist 9 Bytes lang. Die Daten kommen danach.
         if len(response) >= 9 + (35 * 2):
 
-            # Wir schneiden den Header ab und interpretieren die Daten als 16 Unsigned Shorts
+            # Header abschneiden und die Daten als 16 Unsigned Shorts interpretieren
             # '>35H' bedeutet: Big Endian, 35 mal Unsigned Short (2 Byte pro Register)
             r = struct.unpack('>35H', response[9:9+70])
 

@@ -1,0 +1,80 @@
+template:
+  - sensor:
+      - name: "Batterie Spannung"
+        unique_id: solis_batt_voltage
+        unit_of_measurement: "V"
+        device_class: voltage
+        state_class: measurement
+        icon: mdi:sine-wave
+        state: "{{ states('sensor.solis_raw_batt_v') | float(0) }}"
+
+      - name: "Batterie Strom"
+        unique_id: solis_batt_current
+        unit_of_measurement: "A"
+        device_class: current
+        state_class: measurement
+        icon: mdi:current-dc
+        state: "{{ states('sensor.solis_raw_batt_i') | float(0) }}"
+
+      - name: "Batterie Leistung"
+        unique_id: solis_batt_power
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        icon: mdi:battery-charging-100
+        state: "{{ states('sensor.solis_raw_batt_p') | float(0) }}"
+
+      - name: "Batterie SoC"
+        unique_id: solis_batt_soc
+        unit_of_measurement: "%"
+        device_class: battery
+        state_class: measurement
+        icon: mdi:battery-medium
+        state: "{{ states('sensor.solis_raw_batt_soc') | float(0) }}"
+
+      - name: "Batterie SoH"
+        unique_id: solis_batt_soh
+        unit_of_measurement: "%"
+        state_class: measurement
+        icon: mdi:battery-heart-variant
+        state: "{{ states('sensor.solis_raw_batt_soh') | float(0) }}"
+
+      - name: "Hausverbrauch"
+        unique_id: solis_house_load
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        icon: mdi:home-lightning-bolt
+        state: "{{ states('sensor.solis_raw_house_load') | float(0) }}"
+
+      - name: "Batterie Ladung Heute"
+        unique_id: solis_batt_charge_today
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+        icon: mdi:battery-arrow-up
+        state: "{{ states('sensor.solis_raw_batt_today_charge') | float(0) }}"
+
+      - name: "Batterie Entladung Heute"
+        unique_id: solis_batt_discharge_today
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+        icon: mdi:battery-arrow-down
+        state: "{{ states('sensor.solis_raw_batt_today_discharge') | float(0) }}"
+
+      - name: "Batterie Ladung Gesamt"
+        unique_id: solis_batt_charge_total
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+        icon: mdi:counter
+        state: "{{ states('sensor.solis_raw_batt_total_charge') | float(0) }}"
+
+      - name: "Batterie Entladung Gesamt"
+        unique_id: solis_batt_discharge_total
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+        icon: mdi:counter
+        state: "{{ states('sensor.solis_raw_batt_total_discharge') | float(0) }}"

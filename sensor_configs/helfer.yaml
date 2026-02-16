@@ -1,0 +1,13 @@
+template:
+  - sensor:
+      # reine PV AC Leistung des Wechselrichters (ohne Batterie)
+      - name: "Solis PV Leistung Netto"
+        unique_id: solis_pv_power_netto
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        icon: mdi:solar-power
+        state: >
+          {% set ac = states('sensor.solis_raw_pv_ac_power') | float(0) %}
+          {% set batt = states('sensor.solis_raw_batt_p') | float(0) %}
+          {{ (ac - batt) | round(0) }}
