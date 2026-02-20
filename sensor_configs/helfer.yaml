@@ -9,5 +9,6 @@ template:
         icon: mdi:solar-power
         state: >
           {% set ac = states('sensor.solis_raw_pv_ac_power') | float(0) %}
-          {% set batt = states('sensor.solis_raw_batt_p') | float(0) %}
-          {{ (ac - batt) | round(0) }}
+          {% set batt = states('sensor.solis_raw_batt_p_direct') | float(0) %}
+          {% set dc = states('sensor.solis_raw_pv_dc_power') | float(0) %}
+          {{ (ac - (batt | float(0) | abs)) | round(0) }}

@@ -5,7 +5,7 @@ import time
 WAVESHARE_IP = "192.168.178.24"
 WAVESHARE_PORT = 502
 
-def get_raw_data(duration=9.0):
+def get_raw_data(duration=9.5):
     """Öffnet die TCP-Leitung und sammelt 9s lang alle eintreffenden Bytes."""
     buffer = b""
     s = None
@@ -15,7 +15,7 @@ def get_raw_data(duration=9.0):
         s.connect((WAVESHARE_IP, WAVESHARE_PORT))
 
         start_time = time.time()
-        s.settimeout(0.2) # Kurzer Intervall-Timeout für die Loop
+        s.settimeout(0.01) # Kurzer Intervall-Timeout für die Loop
 
         while (time.time() - start_time) < duration:
             try:

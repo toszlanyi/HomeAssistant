@@ -11,7 +11,7 @@ EASTRON_ID = 0x01
 
 @time_trigger("period(0, 10)")
 async def process_eastron_data():
-    buffer = await task.executor(eastron_driver.get_raw_data, duration=5.0)
+    buffer = await task.executor(eastron_driver.get_raw_data, duration=9.5)
     if not buffer or len(buffer) < 8:
         return
 

@@ -22,7 +22,7 @@ template:
         device_class: power
         state_class: measurement
         icon: mdi:battery-charging-100
-        state: "{{ states('sensor.solis_raw_batt_p') | float(0) }}"
+        state: "{{ (states('sensor.solis_raw_batt_p') | float(0)) }}"
 
       - name: "Batterie SoC"
         unique_id: solis_batt_soc
