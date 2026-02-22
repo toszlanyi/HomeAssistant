@@ -53,7 +53,7 @@ async def process_eastron_data():
 
                             # --- FLEXIBLE LOGIK FÜR ENERGIE & P-TOTAL ---
                             # Prüft, ob die Ziel-Register im angefragten Bereich liegen
-                            for target_reg, target_key in [(52, "p_tot"), (72, "e_imp"), (74, "e_exp")]:
+                            for target_reg, target_key in [(52, "p_tot"), (72, "e_exp"), (74, "e_imp")]:
                                 if reg_start <= target_reg < reg_start + reg_count:
                                     # Jedes Register belegt 2 Bytes, Offset berechnen
                                     byte_offset = (target_reg - reg_start) * 2
@@ -70,8 +70,8 @@ async def process_eastron_data():
     for key, values in stats.items():
         if values:
             avg_val = sum(values) / len(values)
-            state.set(f"sensor.eastron_raw_{key}", value=round(avg_val, 3))
+            state.set(f"sensor.eastron_raw_{key}", value=round(avg_val, 1))
             if key in ["u1", "u2", "u3"]:
-                state.set(f"sensor.eastron_raw_{key}_min", value=round(min(values), 3))
+                state.set(f"sensor.eastron_raw_{key}_min", value=round(min(values), 1))
 
     del buffer

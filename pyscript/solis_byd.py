@@ -69,7 +69,7 @@ def decode_s32(high, low):
 @time_trigger("period(0, 30s)")
 def task_solis_all():
 
-    # === Keine Cloud-Vorhersage. Bei Fehler: Exponential Backoff.===
+    # === Bei Fehler: Exponential Backoff.===
 
     global _current_retry_delay, _consecutive_failures, _last_success_time
 
@@ -130,7 +130,7 @@ def task_solis_all():
         factor = 1 if dir_ == 1 else -1
         i_final = round((i_raw * 0.1) * factor, 2)
         p_batt = round(v_final * i_final, 0)
-        p_batt_direct = decode_s32(c[16], c[17])
+#        p_batt_direct = decode_s32(c[16], c[17])
 
         total_c = (c[28] << 16) | c[29]
         today_c = round(c[30] * 0.1, 1)
@@ -147,7 +147,7 @@ def task_solis_all():
             state.set("sensor.solis_raw_batt_total_discharge", value=total_d)
             state.set("sensor.solis_raw_batt_today_charge", value=today_c)
             state.set("sensor.solis_raw_batt_today_discharge", value=today_d)
-            state.set("sensor.solis_raw_batt_p_direct", value=p_batt_direct)
+#            state.set("sensor.solis_raw_batt_p_direct", value=p_batt_direct)
 
         # Netz & Haus
         state.set("sensor.solis_raw_house_load", value=c[14])
