@@ -9,6 +9,16 @@ template:
         icon: mdi:solar-power
         state: >
           {% set ac = states('sensor.solis_raw_pv_ac_power') | float(0) %}
-          {% set batt = states('sensor.solis_raw_batt_p_direct') | float(0) %}
-          {% set dc = states('sensor.solis_raw_pv_dc_power') | float(0) %}
-          {{ (ac - (batt | float(0) | abs)) | round(0) }}
+          {% set batt = states('sensor.solis_raw_batt_p') | float(0) %}
+          {{ ac - batt | round(0) }}
+
+      - name: "Solis Phantom Power Heute"
+        unique_id: solis_phantom_power_today
+        unit_of_measurement: "kWh"
+        state_class: measurement
+        icon: mdi:ghost
+        state: >
+          {% set export = states('sensor.solis_raw_grid_export_today') | float(0) %}
+          {% set import = states('sensor.solis_raw_grid_import_today') | float(0) %}
+          {% set net = (export - import) | abs %}
+          {{ (export + import - net) | round(2) }}

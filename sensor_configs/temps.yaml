@@ -1,0 +1,11 @@
+template:
+  - sensor:
+      # === Wechselrichter Temperatur ===
+
+      - name: "Solis Wechselrichter Temperatur"
+        unique_id: solis_wr_temperature
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+        icon: mdi:thermometer
+        state: "{{ states('sensor.solis_raw_wr_temperature') | float(0) }}"

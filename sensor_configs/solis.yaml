@@ -1,6 +1,7 @@
 template:
   - sensor:
-      # --- PV Ertrags-Historie (Tabelle 4) ---
+      # --- PV Ertrags-Historie ---
+      
       - name: "Solis PV Ertrag Gesamt"
         unique_id: solis_pv_total_yield
         unit_of_measurement: "kWh"
@@ -33,7 +34,8 @@ template:
         icon: mdi:calendar-today
         state: "{{ states('sensor.solis_raw_pv_today_yield') | float(0) }}"
 
-      # --- Aktuelle PV Leistungen ---
+        # --- Aktuelle PV Leistungen ---
+        
       - name: "Solis PV Leistung DC (Gesamt)"
         unique_id: solis_pv_dc_power
         unit_of_measurement: "W"
@@ -51,6 +53,7 @@ template:
         state: "{{ states('sensor.solis_raw_pv_ac_power') | float(0) }}"
 
       # --- String Leistungen ---
+      
       - name: "Solis PV String 1 Leistung"
         unique_id: solis_pv_p1
         unit_of_measurement: "W"
@@ -83,7 +86,8 @@ template:
         icon: mdi:solar-panel-large
         state: "{{ states('sensor.solis_raw_pv_p4') | float(0) }}"
 
-      # --- Netz-Statistiken (Tabelle 3) ---
+      # --- Netz-Statistiken ---
+      
       - name: "Solis Netzleistung aktuell"
         unique_id: solis_grid_power_now
         unit_of_measurement: "W"
@@ -109,7 +113,32 @@ template:
         icon: mdi:transmission-tower-export
         state: "{{ states('sensor.solis_raw_grid_export_total') | float(0) }}"
 
-      # --- Hausverbrauch Historie (Tabelle 3) ---
+      - name: "Solis Netzbezug heute"
+        unique_id: solis_grid_import_today
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+        icon: mdi:transmission-tower-import
+        state: "{{ states('sensor.solis_raw_grid_import_today') | float(0) }}"
+
+      - name: "Solis Netzeinspeisung heute"
+        unique_id: solis_grid_export_today
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+        icon: mdi:transmission-tower-export
+        state: "{{ states('sensor.solis_raw_grid_export_today') | float(0) }}"
+
+      # --- Hausverbrauch ---
+
+      - name: "Hausverbrauch"
+        unique_id: solis_house_load
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        icon: mdi:home-lightning-bolt
+        state: "{{ states('sensor.solis_raw_house_load') | float(0) }}"
+      
       - name: "Solis Hausverbrauch gesamt"
         unique_id: solis_house_yield_total
         unit_of_measurement: "kWh"

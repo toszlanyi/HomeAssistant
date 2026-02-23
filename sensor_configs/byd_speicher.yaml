@@ -39,14 +39,6 @@ template:
         icon: mdi:battery-heart-variant
         state: "{{ states('sensor.solis_raw_batt_soh') | float(0) }}"
 
-      - name: "Hausverbrauch"
-        unique_id: solis_house_load
-        unit_of_measurement: "W"
-        device_class: power
-        state_class: measurement
-        icon: mdi:home-lightning-bolt
-        state: "{{ states('sensor.solis_raw_house_load') | float(0) }}"
-
       - name: "Batterie Ladung Heute"
         unique_id: solis_batt_charge_today
         unit_of_measurement: "kWh"

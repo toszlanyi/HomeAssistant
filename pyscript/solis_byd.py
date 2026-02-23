@@ -28,7 +28,7 @@ CHUNK_A_START = 33029
 CHUNK_A_COUNT = 30
 
 CHUNK_B_START = 33079
-CHUNK_B_COUNT = 2
+CHUNK_B_COUNT = 19   # endet bei 33097 (Temperaturen)
 
 CHUNK_C_START = 33133
 CHUNK_C_COUNT = 47
@@ -37,6 +37,10 @@ CHUNK_C_COUNT = 47
 # ============================================================================
 # HILFSFUNKTIONEN
 # ============================================================================
+
+def decode_s16(val):
+    # === Temperatur ===
+    return val if val < 0x8000 else val - 0x10000
 
 def build_pdu(trans_id, start, count):
     return struct.pack('>HHHBBHH', trans_id, 0, 6, UNIT_ID, 4, start, count)
@@ -102,6 +106,13 @@ def task_solis_all():
         _last_success_time = time.time()
 
         # === DATENVERARBEITUNG ===
+
+        # Temperaturen
+        wr_temp = decode_s16(b[14]) * 0.1    # 33093
+        batt_temp = decode_s16(b[18]) * 0.1  # 33097
+
+        state.set("sensor.solis_raw_wr_temperature", value=round(wr_temp, 1))
+        state.set("sensor.solis_raw_batt_temperature", value=round(batt_temp, 1))
 
         # PV Erträge
         state.set("sensor.solis_raw_pv_total_yield", value=(a[0] << 16) | a[1])
