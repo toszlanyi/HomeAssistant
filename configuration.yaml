@@ -20,3 +20,28 @@ homeassistant:
 #  logs:
 #    homeassistant.components.modbus: fatal
 #    pymodbus.logging: fatal
+
+# ===========================================
+
+# template sensor: Reload reicht
+# platform: integration und utility_meter: in configuration.yaml - immer Neustart nötig
+
+# ===========================================
+
+# === Riemann-Summe - Helfer für Energieverbrauch (kann nicht als Package geladen werden) ===
+
+sensor:
+  - platform: integration
+    source: sensor.wr_leistung
+    name: "Solis WR Energie"
+    unique_id: solis_wr_energy_integral
+    unit_prefix: k
+    round: 2
+    method: left
+
+utility_meter:
+  solis_wr_energie_taeglich:
+    source: sensor.solis_wr_energie
+    name: "Solis WR Energie Täglich"
+    unique_id: solis_wr_energy_daily
+    cycle: daily

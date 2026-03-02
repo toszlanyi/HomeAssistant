@@ -1,0 +1,32 @@
+type: entities
+entities:
+  - entity: sensor.netz_export_plausibel
+    name: Export Status
+    secondary_info: last-changed
+  - type: attribute
+    entity: sensor.netz_export_plausibel
+    attribute: grund
+    name: "  ↳ Grund"
+  - entity: sensor.netz_export_korrigiert_plausibel
+    name: Export (echt)
+  - entity: sensor.netz_export_korrigiert_phantom
+    name: Export (Phantom)
+  - type: divider
+  - entity: sensor.netz_import_plausibel
+    name: Import Status
+    secondary_info: last-changed
+  - type: attribute
+    entity: sensor.netz_import_plausibel
+    attribute: grund
+    name: "  ↳ Grund"
+  - entity: sensor.netz_import_korrigiert_plausibel
+    name: Import (echt)
+  - entity: sensor.netz_import_korrigiert_phantom
+    name: Import (Phantom)
+  - type: divider
+  - entity: sensor.solis_raw_grid_import_today
+    name: Import RAW
+  - entity: sensor.solis_raw_grid_export_today
+    name: Export RAW
+  - entity: sensor.phantom_power_aktuell
+    name: Phantom jetzt

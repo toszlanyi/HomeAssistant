@@ -1,0 +1,27 @@
+# ============================================================================
+# Phantom Power Automation
+# ============================================================================
+
+- alias: "Netz Export Tarif"
+  mode: restart
+  trigger:
+    - platform: state
+      entity_id: sensor.netz_export_plausibel
+  action:
+    - action: select.select_option
+      target:
+        entity_id: select.netz_export_korrigiert
+      data:
+        option: "{{ 'plausibel' if is_state('sensor.netz_export_plausibel', 'true') else 'phantom' }}"
+
+- alias: "Netz Import Tarif"
+  mode: restart
+  trigger:
+    - platform: state
+      entity_id: sensor.netz_import_plausibel
+  action:
+    - action: select.select_option
+      target:
+        entity_id: select.netz_import_korrigiert
+      data:
+        option: "{{ 'plausibel' if is_state('sensor.netz_import_plausibel', 'true') else 'phantom' }}"

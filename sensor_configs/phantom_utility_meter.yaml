@@ -1,0 +1,21 @@
+# ============================================================================
+# UTILITY METER KONFIGURATION
+# ============================================================================
+# Füge das zu deiner configuration.yaml hinzu:
+# utility_meter: !include phantom_utility_meter.yaml
+# ============================================================================
+
+utility_meter:
+  netz_export_korrigiert:
+    source: sensor.solis_raw_grid_export_today
+    cycle: daily
+    tariffs:
+      - plausibel
+      - phantom
+
+  netz_import_korrigiert:
+    source: sensor.solis_raw_grid_import_today
+    cycle: daily
+    tariffs:
+      - plausibel
+      - phantom

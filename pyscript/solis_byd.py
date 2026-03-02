@@ -70,7 +70,7 @@ def decode_s32(high, low):
 # HAUPT-TASK
 # ============================================================================
 
-@time_trigger("period(0, 30s)")
+@time_trigger("period(30, 60s)")
 def task_solis_all():
 
     # === Bei Fehler: Exponential Backoff.===
