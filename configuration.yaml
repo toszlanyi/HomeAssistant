@@ -10,22 +10,54 @@ automation: !include automations.yaml
 script: !include scripts.yaml
 scene: !include scenes.yaml
 
-# Konfigurationen
-homeassistant:
-  packages: !include_dir_named sensor_configs
-
-# nur krasse Sachen loggen
-#logger:
-#  default: info
-#  logs:
-#    homeassistant.components.modbus: fatal
-#    pymodbus.logging: fatal
-
+# ===========================================
+# Konfiguration für HA Struktur
 # ===========================================
 
+homeassistant:
+  packages: !include_dir_named sensor_configs (für separate YAML Dateien)
+
+recorder:
+  commit_interval: 60 # nur alle x Sekunden in Datenbank schreiben
+  purge_keep_days: 7  # alte Daten löschen
+  include:
+    entities: # Das soll in der HA Datenbank gespeichert bleiben
+      - sensor.netzleistung_gesamt
+      - sensor.solis_pv_leistung_dc_gesamt
+      - sensor.hausverbrauch
+      - sensor.batterie_leistung
+      - sensor.batterie_soc
+  exclude: # Diese Einträge werden nicht in der HA Datenbank gespeichert
+    entity_globs:
+      - sensor.*raw*
+      - device_tracker.*
+
+influxdb: # Aus HA Apps installiert - bessere Datenbank für zeitliche Abläufe 
+  host: localhost
+  port: 8086
+  database: home_assistant
+  username: homeassistant
+  password: !secret influx_pw
+  include:
+    domains:
+      - sensor # Alles was irgendie nach Sensor aussieht
+  exclude:
+    # Hier werden spezielle Sensoren ausgewählt, die ignoriert werden
+    # auch wenn sie oben durch ein Muster (Glob) erfasst wurden
+    entity_globs:
+      - sensor.*raw* # Schließt alle Sensoren aus, die "raw" im Namen haben
+      - sensor.*_status # Schließt Status-Texte aus (Influx mag Zahlen lieber)
+
+# nur krasse Sachen loggen
+logger:
+  default: warning
+  logs:
+    homeassistant.components.modbus: warning
+    pymodbus.logging: warning
+
+# ===========================================
 # template sensor: Reload reicht
 # platform: integration und utility_meter: in configuration.yaml - immer Neustart nötig
-
 # ===========================================
 
 # === Riemann-Summe - Helfer für Energieverbrauch (kann nicht als Package geladen werden) ===

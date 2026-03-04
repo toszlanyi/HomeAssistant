@@ -5,8 +5,8 @@ import time
 WAVESHARE_IP = "192.168.178.24"
 WAVESHARE_PORT = 502
 
-def get_raw_data(duration=9.0):
-    """Öffnet die TCP-Leitung und sammelt 9s lang alle eintreffenden Bytes."""
+def get_raw_data(duration=19.0):
+    """Öffnet die TCP-Leitung und sammelt 19s lang alle eintreffenden Bytes."""
     buffer = b""
     s = None
     try:

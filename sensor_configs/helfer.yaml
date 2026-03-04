@@ -39,3 +39,14 @@ template:
           {% else %}
             0
           {% endif %}
+          
+command_line:
+  - sensor:
+      name: "HA Datenbank Groesse"
+      # Der Pfad zur SQLite Datei im Standard-Config-Ordner
+      command: "du -m /config/home-assistant_v2.db | cut -f1"
+      unit_of_measurement: "MB"
+      value_template: "{{ value | int }}"
+      scan_interval: 1800 # Zweimal pro Stunde prüfen reicht
+      unique_id: "sensor.ha_db_size_mb"
+      icon: mdi:database-check
