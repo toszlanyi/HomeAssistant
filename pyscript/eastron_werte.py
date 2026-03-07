@@ -70,8 +70,8 @@ async def process_eastron_data():
     for key, values in stats.items():
         if values:
             avg_val = sum(values) / len(values)
-            state.set(f"sensor.eastron_raw_{key}", value=round(avg_val, 1))
+            state.set(f"sensor.eastron_raw_{key}", value=round(avg_val, 2))
             if key in ["u1", "u2", "u3"]:
-                state.set(f"sensor.eastron_raw_{key}_min", value=round(min(values), 1))
+                state.set(f"sensor.eastron_raw_{key}_min", value=round(min(values), 2))
 
     del buffer

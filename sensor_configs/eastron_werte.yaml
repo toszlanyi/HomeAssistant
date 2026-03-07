@@ -8,14 +8,14 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:vlc
-        state: "{{ states('sensor.eastron_raw_u1') | float(0) | round(1) }}"
+        state: "{{ states('sensor.eastron_raw_u1') | float(0) | round(2) }}"
         
       - name: "Netzspannung L1 Min"
         unique_id: eastron_u1_min
         unit_of_measurement: "V"
         device_class: voltage
         icon: mdi:arrow-down-bold
-        state: "{{ states('sensor.eastron_raw_u1_min') | float(0) | round(1) }}"
+        state: "{{ states('sensor.eastron_raw_u1_min') | float(0) | round(2) }}"
 
       - name: "Netzspannung L2"
         unique_id: eastron_u2
@@ -23,14 +23,14 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:vlc
-        state: "{{ states('sensor.eastron_raw_u2') | float(0) | round(1) }}"
+        state: "{{ states('sensor.eastron_raw_u2') | float(0) | round(2) }}"
         
       - name: "Netzspannung L2 Min"
         unique_id: eastron_u2_min
         unit_of_measurement: "V"
         device_class: voltage
         icon: mdi:arrow-down-bold
-        state: "{{ states('sensor.eastron_raw_u2_min') | float(0) | round(1) }}"
+        state: "{{ states('sensor.eastron_raw_u2_min') | float(0) | round(2) }}"
 
       - name: "Netzspannung L3"
         unique_id: eastron_u3
@@ -38,14 +38,14 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:vlc
-        state: "{{ states('sensor.eastron_raw_u3') | float(0) | round(1) }}"
+        state: "{{ states('sensor.eastron_raw_u3') | float(0) | round(2) }}"
         
       - name: "Netzspannung L3 Min"
         unique_id: eastron_u3_min
         unit_of_measurement: "V"
         device_class: voltage
         icon: mdi:arrow-down-bold
-        state: "{{ states('sensor.eastron_raw_u3_min') | float(0) | round(1) }}"
+        state: "{{ states('sensor.eastron_raw_u3_min') | float(0) | round(2) }}"
 
       # --- STRÖME (3x) ---
       

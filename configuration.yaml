@@ -15,32 +15,32 @@ scene: !include scenes.yaml
 # ===========================================
 
 homeassistant:
-  packages: !include_dir_named sensor_configs (für separate YAML Dateien)
+  packages: !include_dir_named sensor_configs # (für separate YAML Dateien)
 
 recorder:
   commit_interval: 60 # nur alle x Sekunden in Datenbank schreiben
   purge_keep_days: 7  # alte Daten löschen
   include:
-    entities: # Das soll in der HA Datenbank gespeichert bleiben
+    entities:
       - sensor.netzleistung_gesamt
       - sensor.solis_pv_leistung_dc_gesamt
       - sensor.hausverbrauch
       - sensor.batterie_leistung
       - sensor.batterie_soc
-  exclude: # Diese Einträge werden nicht in der HA Datenbank gespeichert
+    entity_globs:
+      - sensor.shelly*leistung*
+      - sensor.shelly*energie*
+      - sensor.netz*
+  exclude:
     entity_globs:
       - sensor.*raw*
       - device_tracker.*
+      - sensor.shelly*
 
 influxdb: # Aus HA Apps installiert - bessere Datenbank für zeitliche Abläufe 
-  host: localhost
-  port: 8086
-  database: home_assistant
-  username: homeassistant
-  password: !secret influx_pw
   include:
     domains:
-      - sensor # Alles was irgendie nach Sensor aussieht
+      - sensor
   exclude:
     # Hier werden spezielle Sensoren ausgewählt, die ignoriert werden
     # auch wenn sie oben durch ein Muster (Glob) erfasst wurden
