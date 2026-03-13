@@ -21,16 +21,18 @@ recorder:
   commit_interval: 60 # nur alle x Sekunden in Datenbank schreiben
   purge_keep_days: 7  # alte Daten löschen
   include:
-    entities:
-      - sensor.netzleistung_gesamt
-      - sensor.solis_pv_leistung_dc_gesamt
-      - sensor.hausverbrauch
-      - sensor.batterie_leistung
-      - sensor.batterie_soc
     entity_globs:
-      - sensor.shelly*leistung*
-      - sensor.shelly*energie*
+      - sensor.*leistung*
+      - sensor.*energie*
       - sensor.netz*
+      - sensor.solis*
+      - sensor.batt*
+      - sensor.gas*
+    entities:
+      - sensor.home_power_production_now
+      - sensor.hausverbrauch
+      - sensor.wr_leistung
+      - sensor.ha_datenbank_groesse
   exclude:
     entity_globs:
       - sensor.*raw*

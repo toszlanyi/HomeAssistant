@@ -1,0 +1,13 @@
+# ===========================================
+# SSH port 22222 für Systemebene freischalten
+# am besten mit ssh key vom USB Stick
+# danach udev regel erstellen
+# ===========================================
+
+# pwd
+
+/etc/udev/rules.d
+
+# cat 10-trim.rules
+
+ACTION=="add|change", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="9210", SUBSYSTEM=="scsi_disk", ATTR{provisioning_mode}="unmap"
