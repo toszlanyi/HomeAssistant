@@ -70,7 +70,7 @@ def decode_s32(high, low):
 # HAUPT-TASK
 # ============================================================================
 
-@time_trigger("period(30, 60s)")
+@time_trigger("period(90, 60s)")
 def task_solis_all():
 
     # === Bei Fehler: Exponential Backoff.===
@@ -109,10 +109,10 @@ def task_solis_all():
 
         # Temperaturen
         wr_temp = decode_s16(b[14]) * 0.1    # 33093
-        batt_temp = decode_s16(b[18]) * 0.1  # 33097
+        # batt_temp = decode_s16(b[18]) * 0.1  # 33097
 
         state.set("sensor.solis_raw_wr_temperature", value=round(wr_temp, 1))
-        state.set("sensor.solis_raw_batt_temperature", value=round(batt_temp, 1))
+        # state.set("sensor.solis_raw_batt_temperature", value=round(batt_temp, 1))
 
         # PV Erträge
         state.set("sensor.solis_raw_pv_total_yield", value=(a[0] << 16) | a[1])

@@ -19,7 +19,7 @@ homeassistant:
 
 recorder:
   commit_interval: 60 # nur alle x Sekunden in Datenbank schreiben
-  purge_keep_days: 7  # alte Daten löschen
+  purge_keep_days: 10  # alte Daten löschen
   include:
     entity_globs:
       - sensor.*leistung*
@@ -54,8 +54,25 @@ influxdb: # Aus HA Apps installiert - bessere Datenbank für zeitliche Abläufe
 logger:
   default: warning
   logs:
+    # Unterdrückt die API-Verbindungsfehler (172.30.32.2)
+    homeassistant.components.hassio: error
+    homeassistant.components.hassio.handler: error
+    
+    # Unterdrückt den Log-Spam des Supervisors selbst
+    # (die veralteten Felder in den Add-on Metadaten)
+    supervisor.resolution.checks.base: error
+    supervisor.resolution.check: error
+    supervisor.resolution.evaluate: error
+    
+    # Modbus-Einstellungen
     homeassistant.components.modbus: warning
     pymodbus.logging: warning
+    
+    # InfluxDB nur Errors zeigen
+    homeassistant.components.influxdb: error
+    
+    # DNS logger (Namen für Geräte finden)
+    homeassistant.components.dns: error
 
 # ===========================================
 # template sensor: Reload reicht
