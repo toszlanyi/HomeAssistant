@@ -1,0 +1,68 @@
+- alias: "Wallbox PV Überschussladen"
+  description: "PV Überschussladen: SoC≥50 floor, SoC≥80 ceil, Minimum 6A, Maximum 16A"
+  mode: single
+  max_exceeded: silent
+
+  trigger:
+    - platform: time_pattern
+      minutes: "/1"
+
+  variables:
+    grid_w: "{{ states('sensor.solis_netzleistung_aktuell') | float(0) }}"
+    batt_soc: "{{ states('sensor.batterie_soc') | float(0) }}"
+    ebox_strom_aktuell: "{{ states('sensor.ebox_current_import') | float(0) }}"
+    ziel_strom_roh: "{{ ebox_strom_aktuell + (grid_w / 690) }}"
+    ziel_strom_floor: "{{ [ziel_strom_roh | int, 0] | max }}"
+    ziel_strom_ceil: "{{ [(ziel_strom_roh | float | round(0, 'ceil')) | int, 0] | max }}"
+
+  action:
+    - choose:
+
+        - conditions:
+            - condition: template
+              value_template: "{{ batt_soc >= 80 }}"
+          sequence:
+            - choose:
+                - conditions:
+                    - condition: template
+                      value_template: "{{ ziel_strom_ceil >= 6 }}"
+                  sequence:
+                    - service: number.set_value
+                      target:
+                        entity_id: number.ebox_maximum_current
+                      data:
+                        value: "{{ [ziel_strom_ceil, 16] | min }}"
+                    - service: switch.turn_on
+                      target:
+                        entity_id: switch.ebox_charge_control
+              default:
+                - service: switch.turn_off
+                  target:
+                    entity_id: switch.ebox_charge_control
+
+        - conditions:
+            - condition: template
+              value_template: "{{ batt_soc >= 50 }}"
+          sequence:
+            - choose:
+                - conditions:
+                    - condition: template
+                      value_template: "{{ ziel_strom_floor >= 6 }}"
+                  sequence:
+                    - service: number.set_value
+                      target:
+                        entity_id: number.ebox_maximum_current
+                      data:
+                        value: "{{ [ziel_strom_floor, 16] | min }}"
+                    - service: switch.turn_on
+                      target:
+                        entity_id: switch.ebox_charge_control
+              default:
+                - service: switch.turn_off
+                  target:
+                    entity_id: switch.ebox_charge_control
+
+      default:
+        - service: switch.turn_off
+          target:
+            entity_id: switch.ebox_charge_control

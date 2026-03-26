@@ -12,17 +12,24 @@ EASTRON_ID = 0x01
 # Phantom-Schwelle: Phasenleistung muss diesen Wert überschreiten,
 # damit das Vorzeichen als "aktiv" gilt (Rauschfilter)
 # 0 = kein Filter, empfohlen: 0-10W
-PHANTOM_THRESHOLD_W = 1
+PHANTOM_THRESHOLD_W = 10
 
 # ============================================================================
-# OFFSET-TRACKING für Phantom-Energie (Version 3)
+# OFFSET-TRACKING für Phantom-Energie (Version 4)
 # ============================================================================
 # Strategie:
-#   - Während Phantom: letzten guten kWh-Wert einfrieren
+#   - Beim Start: letzten guten Wert aus HA-State laden (überlebt Neustart,
+#     wenn Sensor im Recorder include ist)
+#   - Beim ersten Messzyklus: Offset = Eastron-Rohwert - letzter HA-Wert
+#   - Während Phantom: letzten guten Wert einfrieren
 #   - Beim Phantom-Ende: aufgelaufenes Delta zum Offset addieren
 #   - Außerhalb Phantom: korrigierten Wert (raw - offset) schreiben
 #
-# Lebensdauer: RAM only → bei HA-Neustart einmaliger Sprung (bekannter Edge Case)
+# Voraussetzung in configuration.yaml recorder:
+#   include:
+#     entities:
+#       - sensor.eastron_raw_e_imp
+#       - sensor.eastron_raw_e_exp
 # ============================================================================
 
 _phantom_was_active  = False
@@ -32,6 +39,7 @@ _e_imp_offset        = 0.0
 _e_exp_offset        = 0.0
 _e_imp_last_good     = 0.0
 _e_exp_last_good     = 0.0
+_offset_initialized  = False   # Flag: Offset beim ersten Messzyklus einmalig setzen
 
 
 def is_phantom(p1, p2, p3):
@@ -51,6 +59,35 @@ def is_phantom(p1, p2, p3):
     return positiv > 0 and negativ > 0
 
 
+@time_trigger("startup")
+def init_on_startup():
+    """
+    Beim Start letzte bekannte korrigierte Werte aus HA laden.
+    Setzt _e_imp_last_good und _e_exp_last_good auf den letzten
+    persistierten Wert → verhindert Spike nach Neustart.
+    """
+    global _e_imp_last_good, _e_exp_last_good
+
+    try:
+        imp = state.get('sensor.eastron_raw_e_imp')
+        exp = state.get('sensor.eastron_raw_e_exp')
+
+        if imp not in (None, 'unknown', 'unavailable'):
+            _e_imp_last_good = float(imp)
+            log.info(f"Startup: e_imp initialisiert mit {_e_imp_last_good} kWh")
+        else:
+            log.warning("Startup: sensor.eastron_raw_e_imp nicht verfügbar – starte mit 0")
+
+        if exp not in (None, 'unknown', 'unavailable'):
+            _e_exp_last_good = float(exp)
+            log.info(f"Startup: e_exp initialisiert mit {_e_exp_last_good} kWh")
+        else:
+            log.warning("Startup: sensor.eastron_raw_e_exp nicht verfügbar – starte mit 0")
+
+    except Exception as e:
+        log.error(f"Startup Init Fehler: {e}")
+
+
 @time_trigger("period(0, 20)")
 async def process_eastron_data():
 
@@ -58,6 +95,7 @@ async def process_eastron_data():
     global _e_imp_phantom_start, _e_exp_phantom_start
     global _e_imp_offset, _e_exp_offset
     global _e_imp_last_good, _e_exp_last_good
+    global _offset_initialized
 
     buffer = await task.executor(eastron_driver.get_raw_data, duration=19.0)
     if not buffer or len(buffer) < 8:
@@ -143,6 +181,18 @@ async def process_eastron_data():
 
     if e_imp_raw is not None and e_exp_raw is not None:
 
+        # Offset einmalig beim ersten Messzyklus nach Neustart initialisieren.
+        # Eastron-Rohwert - letzter bekannter HA-Wert = bisheriger kumulierter Offset.
+        # Dadurch kein Spike beim ersten Schreiben nach Neustart.
+        if not _offset_initialized:
+            _e_imp_offset = e_imp_raw - _e_imp_last_good
+            _e_exp_offset = e_exp_raw - _e_exp_last_good
+            _offset_initialized = True
+            log.info(
+                f"Offset initialisiert: imp={_e_imp_offset:.2f} kWh, "
+                f"exp={_e_exp_offset:.2f} kWh"
+            )
+
         # Phantom startet → Eastron-Stand zu Beginn merken
         if phantom and not _phantom_was_active:
             _e_imp_phantom_start = e_imp_raw
@@ -202,4 +252,3 @@ async def process_eastron_data():
             state.set(f"sensor.eastron_raw_{key}_min", value=round(min(values), 2))
 
     del buffer
-

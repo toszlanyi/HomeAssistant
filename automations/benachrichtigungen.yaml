@@ -1,0 +1,47 @@
+- id: '1774094229660'
+  alias: Benachrichtigung für "Waschmaschine fertig"
+  description: ''
+  triggers:
+    - trigger: numeric_state
+      entity_id:
+        - sensor.shelly_mg3_4_leistung
+      for:
+        hours: 0
+        minutes: 1
+        seconds: 0
+      below: 10
+  conditions: []
+  actions:
+    - action: notify.mobile_app_s23_tobias
+      metadata: {}
+      data:
+        message: Waschmaschine ist fertig
+    - action: notify.mobile_app_s25_von_nicole
+      metadata: {}
+      data:
+        message: Waschmaschine ist fertig
+  mode: single
+
+- id: '1774095904465'
+  alias: Benachrichtigung für "Geschirrspüler fertig"
+  description: ''
+  triggers:
+    - trigger: numeric_state
+      entity_id:
+        - sensor.shelly_mg3_9_leistung
+      for:
+        hours: 0
+        minutes: 1
+        seconds: 0
+      below: 10
+  conditions: []
+  actions:
+    - action: notify.mobile_app_s23_tobias
+      metadata: {}
+      data:
+        message: Geschirrspüler ist fertig
+    - action: notify.mobile_app_s25_von_nicole
+      metadata: {}
+      data:
+        message: Geschirrspüler ist fertig
+  mode: single

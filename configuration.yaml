@@ -6,38 +6,37 @@ default_config:
 frontend:
   themes: !include_dir_merge_named themes
 
-automation: !include automations.yaml
+automation: !include_dir_merge_list automations/
 script: !include scripts.yaml
 scene: !include scenes.yaml
-
-# ===========================================
-# Konfiguration für HA Struktur
-# ===========================================
 
 homeassistant:
   packages: !include_dir_named sensor_configs # (für separate YAML Dateien)
 
-recorder:
-  commit_interval: 60 # nur alle x Sekunden in Datenbank schreiben
-  purge_keep_days: 10  # alte Daten löschen
-  include:
-    entity_globs:
-      - sensor.*leistung*
-      - sensor.*energie*
-      - sensor.netz*
-      - sensor.solis*
-      - sensor.batt*
-      - sensor.gas*
-    entities:
-      - sensor.home_power_production_now
-      - sensor.hausverbrauch
-      - sensor.wr_leistung
-      - sensor.ha_datenbank_groesse
-  exclude:
-    entity_globs:
-      - sensor.*raw*
-      - device_tracker.*
-      - sensor.shelly*
+#recorder:
+#  commit_interval: 60 # nur alle x Sekunden in Datenbank schreiben
+#  purge_keep_days: 10  # alte Daten löschen
+#  include:
+#    entity_globs:
+#      - sensor.*leistung* # Shelly's
+#      - sensor.*energie* # Shelly's
+#      - sensor.netz* # Eastron
+#      - sensor.solis* # Solis Datenlogger
+#      - sensor.batt* # Solis Datenlogger
+#      - sensor.gas* # Impulszähler am RPi GPIO
+#      - sensor.*production* # Solar Vorhersage
+#      - sensor.ebox* # wallbox
+#    entities:
+#      - sensor.hausverbrauch
+#      - sensor.wr_leistung
+#      - sensor.ha_datenbank_groesse
+#      - sensor.eastron_raw_e_imp # wird vom eastron pyscript als variable eingelesen
+#      - sensor.eastron_raw_e_exp # wird vom eastron pyscript als variable eingelesen
+#  exclude:
+#    entity_globs:
+#      - sensor.*raw*
+#      - device_tracker.*
+#      - sensor.shelly*
 
 influxdb: # Aus HA Apps installiert - bessere Datenbank für zeitliche Abläufe 
   include:
@@ -51,28 +50,28 @@ influxdb: # Aus HA Apps installiert - bessere Datenbank für zeitliche Abläufe
       - sensor.*_status # Schließt Status-Texte aus (Influx mag Zahlen lieber)
 
 # nur krasse Sachen loggen
-logger:
-  default: warning
-  logs:
+#logger:
+#  default: warning
+#  logs:
     # Unterdrückt die API-Verbindungsfehler (172.30.32.2)
-    homeassistant.components.hassio: error
-    homeassistant.components.hassio.handler: error
-    
+#    homeassistant.components.hassio: error
+#    homeassistant.components.hassio.handler: error
+
     # Unterdrückt den Log-Spam des Supervisors selbst
-    # (die veralteten Felder in den Add-on Metadaten)
-    supervisor.resolution.checks.base: error
-    supervisor.resolution.check: error
-    supervisor.resolution.evaluate: error
-    
+#   # (die veralteten Felder in den Add-on Metadaten)
+#    supervisor.resolution.checks.base: error
+#    supervisor.resolution.check: error
+#    supervisor.resolution.evaluate: error
+
     # Modbus-Einstellungen
-    homeassistant.components.modbus: warning
-    pymodbus.logging: warning
+#    homeassistant.components.modbus: warning
+#    pymodbus.logging: warning
     
     # InfluxDB nur Errors zeigen
-    homeassistant.components.influxdb: error
+#    homeassistant.components.influxdb: error
     
     # DNS logger (Namen für Geräte finden)
-    homeassistant.components.dns: error
+#    homeassistant.components.dns: error
 
 # ===========================================
 # template sensor: Reload reicht

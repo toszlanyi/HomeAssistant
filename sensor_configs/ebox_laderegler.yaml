@@ -1,0 +1,27 @@
+# Der Schieberegler (Helfer)
+# Erscheint in HA als: input_number.ebox_ladestrom_vorgabe
+input_number:
+  ebox_ladestrom_vorgabe:
+    name: "eBox Ladestrom Vorgabe"
+    min: 6
+    max: 16
+    initial: 6
+    step: 1
+    unit_of_measurement: "A"
+    icon: mdi:current-ac
+    mode: slider
+
+# Die Automatisierung
+# Diese verbindet den Helfer mit deinem Pyscript
+automation:
+  - id: ebox_modbus_current_sync
+    alias: "eBox: Ladestrom via Modbus setzen"
+    description: "Überträgt den Wert des Schiebereglers an das Pyscript"
+    trigger:
+      - platform: state
+        entity_id: input_number.ebox_ladestrom_vorgabe
+    action:
+      - service: pyscript.compleo_set_current
+        data:
+          amps: "{{ states('input_number.ebox_ladestrom_vorgabe') | float }}"
+    mode: restart
