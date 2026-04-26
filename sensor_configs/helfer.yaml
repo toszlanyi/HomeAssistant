@@ -2,18 +2,55 @@
 
 template:
   - sensor:
-      # reine PV AC Leistung des Wechselrichters
-      - name: "Solis PV Leistung Netto"
+
+#   Ladeenergie ins Auto (zusätzliche Kapazität in %)
+      - name: "Bis jetzt geladen (SOC)"
+        unique_id: car_session_charge_percentage
+        unit_of_measurement: "%"
+        device_class: battery
+        state_class: measurement
+        state: >
+          {% set energy = states('sensor.ebox_smart_energy_active_import_register') | float(0) %}
+          {% set capacity = 77 %}
+          {% if energy > 0 %}
+            {{ (energy / capacity * 100) | round(1) }}
+          {% else %}
+            0
+          {% endif %}
+        availability: >
+          {{ is_number(states('sensor.ebox_smart_energy_active_import_register')) }}
+
+#   PV Leistung nach Wandlung (AC Seite)
+      - name: "PV Leistung netto"
         unique_id: solis_pv_power_netto
         unit_of_measurement: "W"
         device_class: power
         state_class: measurement
         icon: mdi:solar-power
         state: >
-          {% set ac = states('sensor.solis_raw_pv_ac_power') | float(0) %}
-          {% set batt = states('sensor.solis_raw_batt_p') | float(0) %}
-          {{ ac - batt | round(0) }}
+          {% set dc = states('sensor.solis_raw_pv_dc_power') | float(0) %}
+          {% set wr = states('sensor.wr_leistung_mit_glattung') | float(0) %}
+          {% set haus = states('sensor.solis_netzleistung_aktuell') | float(0) %}
+          {% set wb = states('sensor.ebox_smart_power_active_import') | float(0) %}
+          
+          {{ (dc - wr - haus + (wb * 1000)) | round(1) }}
+          
+      - name: "PV Strom Überschuss"
+        unique_id: pv_current_available
+        unit_of_measurement: "A"
+        device_class: current
+        state_class: measurement
+        icon: mdi:solar-power
+        state: >
+          {% set ueberschuss = states('sensor.solis_pv_leistung_netto') | float(0) %}
+          {% set spannung = states('sensor.ebox_smart_voltage') | float(230) %}
+          {% if spannung > 200 %}
+            {{ (ueberschuss / (3 * spannung)) | round(1) }}
+          {% else %}
+            {{ (ueberschuss / 690) | round(1) }}
+          {% endif %}
 
+#   Errechnete Wechselrichter Leistung
       - name: "WR Leistung"
         unique_id: solis_inverter_power
         unit_of_measurement: "W"
@@ -21,11 +58,34 @@ template:
         state_class: measurement
         icon: mdi:solar-power
         state: >
+          {# 1. Die Basis-Daten holen #}
           {% set dc = states('sensor.solis_raw_pv_dc_power') | float(0) %}
           {% set ac = states('sensor.solis_raw_pv_ac_power') | float(0) %}
           {% set batt = states('sensor.solis_raw_batt_p') | float(0) %}
-          {{ (ac - dc - batt) | abs | round(1) }}
+          {% set haus = states('sensor.solis_netzleistung_aktuell') | float(0) %}
 
+          {# 2. Der Durchsatz (x): Wie viel Energie bewegt sich insgesamt? #}
+          {% set x = [dc, ac, (batt | abs), haus] | max %}
+
+          {# 3. Der aktuelle Fehlerwert: Was wollen wir prüfen? #}
+          {% set current_val = ((dc + batt) - ac) | abs %}
+
+          {# 4. Die dynamische Grenze (Threshold) berechnen #}
+          {# Wir nutzen x, um zu bestimmen, wie viel Fehler bei dieser Last erlaubt ist #}
+          {% set p_raw = (12000000 / ((x + 150) ** 2) + 6) %}
+          {% set t_calc = (x * p_raw / 100) %}
+
+          {# 5. Sicherheits-Boden von 180W gegen Modbus-Latenz #}
+          {% set threshold = [t_calc, 180] | max %}
+
+          {# 6. Die Entscheidung #}
+          {% if current_val > threshold or current_val > 1000 %}
+            {{ states('sensor.wr_leistung') | float(35) }}
+          {% else %}
+            {{ current_val | round(1) }}
+          {% endif %}
+
+#   Wechselrichter Wirkungsgrad
       - name: "Solis WR Wirkungsgrad"
         unique_id: solis_inverter_efficiency
         unit_of_measurement: "%"
@@ -33,20 +93,68 @@ template:
         icon: mdi:percent-outline
         state: >
           {% set dc = states('sensor.solis_raw_pv_dc_power') | float(0) %}
-          {% set ac_netto = states('sensor.solis_pv_leistung_netto') | float(0) %}
-          {% if dc > 100 %}
-            {{ ((ac_netto / dc) * 100) | round(1) }}
+          {% set ac = states('sensor.solis_raw_pv_ac_power') | float(0) %}
+          {% set batt = states('sensor.solis_raw_batt_p') | float(0) %}
+          {% set haus = states('sensor.solis_netzleistung_aktuell') | float(0) %}
+          {% set wr = states('sensor.wr_leistung_mit_glattung') | float(0) %}
+          {% set x = [dc, ac, (batt | abs), haus] | max %}
+          {% if x > 50 %}
+            {{ [((1 - (wr / (dc + batt))) * 100), 100] | min | round(1) }}
           {% else %}
             0
           {% endif %}
-          
+
+sensor:
+
+#   Wechselrichter Leistung - Glättung durch Mittelwerte
+  - platform: statistics
+    name: "WR Leistung mit Glättung"
+    unique_id: solis_inverter_power_smoothed
+    entity_id: sensor.wr_leistung
+    state_characteristic: mean
+    # ==========================================
+    # HIER STELLST DU DIE ANZAHL DER WERTE EIN:
+    # ==========================================
+    sampling_size: 3
+    # Wir geben den Werten eine maximale Lebensdauer von 30 Minuten,
+    # falls der Wechselrichter nachts mal komplett offline geht.
+    max_age:
+      minutes: 30
+
+#   Riemann-Summe - Helfer für Energieverbrauch
+  - platform: integration
+    source: sensor.wr_leistung_mit_glattung
+    name: "Solis WR Energie"
+    unique_id: solis_wr_energy_integral
+    unit_prefix: k
+    round: 2
+    method: left
+    max_sub_interval:
+      minutes: 5
+
+utility_meter:
+  solis_wr_energie_taeglich:
+    source: sensor.solis_wr_energie
+    name: "Solis WR Energie Täglich"
+    unique_id: solis_wr_energy_daily
+    cycle: daily
+    periodically_resetting: false
+
+timer:
+  ebox_sleep_protection:
+    name: "eBox Sleep-Schutz Timer"
+    duration: "00:05:00"
+    icon: mdi:timer-outline
+
 command_line:
   - sensor:
+
+#   Größe der Datenbank Datei
       name: "HA Datenbank Groesse"
       # Der Pfad zur SQLite Datei im Standard-Config-Ordner
       command: "du -m /config/home-assistant_v2.db | cut -f1"
       unit_of_measurement: "MB"
       value_template: "{{ value | int }}"
       scan_interval: 1800 # Zweimal pro Stunde prüfen reicht
-      unique_id: "sensor.ha_db_size_mb"
+      unique_id: "ha_db_size_mb"
       icon: mdi:database-check

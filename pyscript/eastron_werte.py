@@ -12,24 +12,15 @@ EASTRON_ID = 0x01
 # Phantom-Schwelle: Phasenleistung muss diesen Wert überschreiten,
 # damit das Vorzeichen als "aktiv" gilt (Rauschfilter)
 # 0 = kein Filter, empfohlen: 0-10W
-PHANTOM_THRESHOLD_W = 10
+PHANTOM_THRESHOLD_W = 1
+
+# Maximale Gesamtabweichung (Summe p1+p2+p3), bei der noch von Phantomstrom
+# ausgegangen wird. Überschreitet die Summe diesen Wert, liegt echter
+# Netzbezug oder -einspeisung vor.
+PHANTOM_MAX_TOTAL_W = 100
 
 # ============================================================================
 # OFFSET-TRACKING für Phantom-Energie (Version 4)
-# ============================================================================
-# Strategie:
-#   - Beim Start: letzten guten Wert aus HA-State laden (überlebt Neustart,
-#     wenn Sensor im Recorder include ist)
-#   - Beim ersten Messzyklus: Offset = Eastron-Rohwert - letzter HA-Wert
-#   - Während Phantom: letzten guten Wert einfrieren
-#   - Beim Phantom-Ende: aufgelaufenes Delta zum Offset addieren
-#   - Außerhalb Phantom: korrigierten Wert (raw - offset) schreiben
-#
-# Voraussetzung in configuration.yaml recorder:
-#   include:
-#     entities:
-#       - sensor.eastron_raw_e_imp
-#       - sensor.eastron_raw_e_exp
 # ============================================================================
 
 _phantom_was_active  = False
@@ -39,32 +30,33 @@ _e_imp_offset        = 0.0
 _e_exp_offset        = 0.0
 _e_imp_last_good     = 0.0
 _e_exp_last_good     = 0.0
-_offset_initialized  = False   # Flag: Offset beim ersten Messzyklus einmalig setzen
+_offset_initialized  = False
 
 
 def is_phantom(p1, p2, p3):
     """
-    Phantom-Erkennung über Phasen-Vorzeichen.
-
-    Der Wechselrichter (Solis S6, Unbalanced Output=OFF) konvertiert DC
-    symmetrisch auf alle 3 Phasen und balanciert um den Nullpunkt.
-    Das führt zu gleichzeitiger Einspeisung und Bezug auf verschiedenen Phasen.
-    → Wenn Vorzeichen gemischt (mind. 1 positiv UND mind. 1 negativ): Phantom.
-
-    Vorzeichenkonvention Eastron: + = Bezug, - = Einspeisung
+    Phantom-Erkennung über Phasen-Vorzeichen und Gesamtsumme.
     """
-    t = PHANTOM_THRESHOLD_W
-    positiv = len([p for p in [p1, p2, p3] if p >  t])
-    negativ = len([p for p in [p1, p2, p3] if p < -t])
-    return positiv > 0 and negativ > 0
+    positiv = len([p for p in [p1, p2, p3] if p > PHANTOM_THRESHOLD_W])
+    negativ = len([p for p in [p1, p2, p3] if p < -PHANTOM_THRESHOLD_W])
 
+    # Bedingung 1: Gemischte Vorzeichen auf den Phasen
+    mixed_signs = (positiv > 0 and negativ > 0)
+
+    # Bedingung 2: Die Summe aller Phasen ist nahe 0 (kleiner als Schwellwert)
+    # Summenprüfung nur bei mixed_signs
+    if mixed_signs:
+        total_power = abs(p1 + p2 + p3)
+        # Wenn die Summe klein genug ist, ist es Phantomstrom vom Wechselrichter
+        return total_power <= PHANTOM_MAX_TOTAL_W
+
+    # Falls die Vorzeichen nicht gemischt sind, ist es immer "echter" Stromfluss
+    return False
 
 @time_trigger("startup")
 def init_on_startup():
     """
     Beim Start letzte bekannte korrigierte Werte aus HA laden.
-    Setzt _e_imp_last_good und _e_exp_last_good auf den letzten
-    persistierten Wert → verhindert Spike nach Neustart.
     """
     global _e_imp_last_good, _e_exp_last_good
 
@@ -88,7 +80,7 @@ def init_on_startup():
         log.error(f"Startup Init Fehler: {e}")
 
 
-@time_trigger("period(0, 20)")
+@time_trigger("period(0, 15)")
 async def process_eastron_data():
 
     global _phantom_was_active
@@ -97,6 +89,7 @@ async def process_eastron_data():
     global _e_imp_last_good, _e_exp_last_good
     global _offset_initialized
 
+    # Den blockierenden Socket-Aufruf sicher in den Executor auslagern
     buffer = await task.executor(eastron_driver.get_raw_data, duration=19.0)
     if not buffer or len(buffer) < 8:
         return
@@ -147,7 +140,9 @@ async def process_eastron_data():
 
                             i = j + 3 + byte_count_expected
                             break
-            except: pass
+            except Exception:
+                # Fängt Fehler beim Entpacken (struct.error) ab, ohne das Skript abstürzen zu lassen
+                pass
         i += 1
 
     # ========================================================================
@@ -165,15 +160,12 @@ async def process_eastron_data():
               attributes={
                   'p1': round(avg_p1, 1),
                   'p2': round(avg_p2, 1),
-                  'p3': round(avg_p3, 1)
+                  'p3': round(avg_p3, 1),
+                  'p_tot_calc': round(avg_p1 + avg_p2 + avg_p3, 1)
               })
 
     # ========================================================================
     # OFFSET-TRACKING: Phantom-Energie dauerhaft herausrechnen
-    #
-    # Während Phantom:  letzten guten Wert einfrieren
-    # Beim Phantom-Ende: aufgelaufenes Delta zum Offset addieren
-    # Außerhalb Phantom: korrigierten Wert schreiben und als letzten guten merken
     # ========================================================================
 
     e_imp_raw = sum(stats["e_imp"]) / len(stats["e_imp"]) if stats["e_imp"] else None
@@ -181,9 +173,6 @@ async def process_eastron_data():
 
     if e_imp_raw is not None and e_exp_raw is not None:
 
-        # Offset einmalig beim ersten Messzyklus nach Neustart initialisieren.
-        # Eastron-Rohwert - letzter bekannter HA-Wert = bisheriger kumulierter Offset.
-        # Dadurch kein Spike beim ersten Schreiben nach Neustart.
         if not _offset_initialized:
             _e_imp_offset = e_imp_raw - _e_imp_last_good
             _e_exp_offset = e_exp_raw - _e_exp_last_good
@@ -193,7 +182,7 @@ async def process_eastron_data():
                 f"exp={_e_exp_offset:.2f} kWh"
             )
 
-        # Phantom startet → Eastron-Stand zu Beginn merken
+        # Phantom startet
         if phantom and not _phantom_was_active:
             _e_imp_phantom_start = e_imp_raw
             _e_exp_phantom_start = e_exp_raw
@@ -202,7 +191,7 @@ async def process_eastron_data():
                 f"(p1={round(avg_p1)}W, p2={round(avg_p2)}W, p3={round(avg_p3)}W)"
             )
 
-        # Phantom endet → Delta während Phantom-Phase zum Offset addieren
+        # Phantom endet
         if not phantom and _phantom_was_active:
             delta_imp = e_imp_raw - _e_imp_phantom_start
             delta_exp = e_exp_raw - _e_exp_phantom_start
@@ -217,11 +206,9 @@ async def process_eastron_data():
         _phantom_was_active = phantom
 
         if phantom:
-            # Einfrieren: letzten guten Wert wiederholen
             state.set("sensor.eastron_raw_e_imp", value=_e_imp_last_good)
             state.set("sensor.eastron_raw_e_exp", value=_e_exp_last_good)
         else:
-            # Korrigierten Wert schreiben und als letzten guten merken
             _e_imp_last_good = round(e_imp_raw - _e_imp_offset, 2)
             _e_exp_last_good = round(e_exp_raw - _e_exp_offset, 2)
             state.set("sensor.eastron_raw_e_imp", value=_e_imp_last_good)
@@ -235,13 +222,11 @@ async def process_eastron_data():
         if not values:
             continue
 
-        # e_imp/e_exp bereits oben behandelt
         if key in ("e_imp", "e_exp"):
             continue
 
         avg_val = sum(values) / len(values)
 
-        # p_tot bei Phantom auf 0 setzen (Momentanwert, nicht einfrieren)
         if phantom and key == "p_tot":
             state.set("sensor.eastron_raw_p_tot", value=0.0)
             continue

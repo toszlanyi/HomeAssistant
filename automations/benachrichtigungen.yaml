@@ -9,7 +9,7 @@
         hours: 0
         minutes: 1
         seconds: 0
-      below: 10
+      below: 2
   conditions: []
   actions:
     - action: notify.mobile_app_s23_tobias
@@ -33,7 +33,7 @@
         hours: 0
         minutes: 1
         seconds: 0
-      below: 10
+      below: 2
   conditions: []
   actions:
     - action: notify.mobile_app_s23_tobias

@@ -1,0 +1,93 @@
+# =============================================================================
+# eBox Smart – Sensor-Konfiguration (HA Package)
+# =============================================================================
+# Ablage:  config/sensor_configs/ebox_energy_meter.yaml
+#
+# Dieses File wird automatisch eingebunden durch:
+#   homeassistant:
+#     packages: !include_dir_named sensor_configs
+#
+# Enthaelt:
+#   1. input_number  – Persistenz-Helper fuer pyscript
+#   2. template      – "echte" Sensoren mit allen Attributen,
+#                      basierend auf den raw-Sensoren aus pyscript
+# =============================================================================
+
+
+# ── 1. Persistenz-Helper ─────────────────────────────────────────────────────
+input_number:
+
+  ebox_cumulative_energy:
+    name: "eBox Kumulierte Energie (Persistenz)"
+    # Beim Erststart automatisch mit start+max(0,session) initialisiert.
+    # Danach absoluter Zaehlerstand – kein manuelles Setzen noetig.
+    # Manueller Override moeglich via: service: pyscript.ebox_meter_set_baseline
+    min: 0
+    max: 99999
+    step: 0.001
+    unit_of_measurement: "kWh"
+    icon: mdi:counter
+    mode: box
+
+  ebox_register_offset:
+    name: "eBox Register Offset (Persistenz)"
+    min: 0
+    max: 9999
+    step: 0.001
+    unit_of_measurement: "kWh"
+    icon: mdi:wrench
+    mode: box
+
+
+# ── 2. Template-Sensoren ─────────────────────────────────────────────────────
+template:
+  - sensor:
+
+      # --- Energie laufende Session -------------------------------------------
+      - name: "eBox Energie laufende Session"
+        unique_id: ebox_energy_session_progress
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total       # Reset auf 0 bei Sessionende ist korrekt
+        icon: mdi:lightning-bolt
+        state: >
+          {{ states('sensor.ebox_energy_session_progress_raw') | float(0) | round(3) }}
+        attributes:
+          source_sensor: "sensor.ebox_energy_session_progress_raw"
+          last_updated: "{{ now().isoformat() }}"
+
+      # --- Energie kumuliert (monoton) ----------------------------------------
+      - name: "eBox Energie kumuliert"
+        unique_id: ebox_energy_cumulative
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+        icon: mdi:counter
+        state: >
+          {{ states('sensor.ebox_energy_cumulative_raw') | float(0) | round(3) }}
+        attributes:
+          source_sensor: "sensor.ebox_energy_cumulative_raw"
+          last_updated: "{{ now().isoformat() }}"
+
+      # --- Ladestatus ---------------------------------------------------------
+      - name: "eBox Ladestatus"
+        unique_id: ebox_charging_state
+        icon: >
+          {% set s = states('sensor.ebox_charging_state_raw') %}
+          {% if s == 'Lädt' %}    mdi:ev-station
+          {% elif s == 'Pausiert' %} mdi:car-electric
+          {% elif s == 'Reset' %}  mdi:alert-circle-outline
+          {% else %}               mdi:power-plug-off
+          {% endif %}
+        state: >
+          {{ states('sensor.ebox_charging_state_raw') }}
+        attributes:
+          is_charging: >
+            {{ states('sensor.ebox_charging_state_raw') == 'Laedt' }}
+          session_kwh: >
+            {{ states('sensor.ebox_energy_session_progress_raw') | float(0) | round(3) }}
+          cumulative_kwh: >
+            {{ states('sensor.ebox_energy_cumulative_raw') | float(0) | round(3) }}
+          wallbox_connector: >
+            {{ states('sensor.ebox_smart_status_connector') }}
+          last_updated: "{{ now().isoformat() }}"

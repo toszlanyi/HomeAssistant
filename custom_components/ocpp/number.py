@@ -17,6 +17,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.util import slugify
 
 from .api import CentralSystem
 from .const import (
@@ -188,7 +189,7 @@ class ChargePointNumber(RestoreNumber, NumberEntity):
             object_id = f"{self.cpid}_connector_{self.connector_id}_{self.entity_description.key}"
         else:
             object_id = f"{self.cpid}_{self.entity_description.key}"
-        self.entity_id = f"{NUMBER_DOMAIN}.{object_id}"
+        self.entity_id = f"{NUMBER_DOMAIN}.{slugify(object_id)}"
         self._attr_native_value = self.entity_description.initial_value
         self._attr_should_poll = False
 
@@ -223,6 +224,7 @@ class ChargePointNumber(RestoreNumber, NumberEntity):
             self.central_system.get_available(self.cpid, self._op_connector_id)
             and has_smart
         )
+
     async def async_set_native_value(self, value):
         """Set new value for max current with 0/6-16A logic."""
 

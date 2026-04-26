@@ -21,7 +21,7 @@ template:
         unit_of_measurement: "W"
         device_class: power
         state_class: measurement
-        icon: mdi:battery-charging-100
+        icon: mdi:battery-charging-60
         state: "{{ (states('sensor.solis_raw_batt_p') | float(0)) }}"
 
       - name: "Batterie SoC"
@@ -29,7 +29,7 @@ template:
         unit_of_measurement: "%"
         device_class: battery
         state_class: measurement
-        icon: mdi:battery-medium
+#        icon: mdi:battery-medium
         state: "{{ states('sensor.solis_raw_batt_soc') | float(0) }}"
 
       - name: "Batterie SoH"

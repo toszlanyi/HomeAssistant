@@ -5,14 +5,14 @@ import time
 # ============================================================================
 #    KONFIGURATION
 # ============================================================================
-SOLIS_IP    = "192.168.178.105"
+SOLIS_IP    = "192.168.178.127"
 SOLIS_PORT  = 502
 UNIT_ID     = 1
-QUERY_DELAY = 0.35 # 300ms acc to Modbus Spec
+QUERY_DELAY = 0.25 # 300ms acc to Modbus Spec
 
 # Exponential Backoff (wie TCP/IP es macht)
-BASE_RETRY_DELAY = 1.0      # Startet mit 1 Sek
-MAX_RETRY_DELAY = 60.0     # Max 1 Min
+BASE_RETRY_DELAY = 2.0      # Startet mit 1 Sek
+MAX_RETRY_DELAY = 90.0     # Max X Sekunden
 BACKOFF_MULTIPLIER = 2.0    # Verdoppelt bei jedem Fehler
 
 # Globale State
@@ -70,7 +70,7 @@ def decode_s32(high, low):
 # HAUPT-TASK
 # ============================================================================
 
-@time_trigger("period(90, 60s)")
+@time_trigger("period(15, 60s)")
 def task_solis_all():
 
     # === Bei Fehler: Exponential Backoff.===
@@ -127,8 +127,8 @@ def task_solis_all():
         state.set("sensor.solis_raw_pv_p4", value=round((a[26] * a[27]) * 0.01, 0))
 
         # PV Leistung
-        state.set("sensor.solis_raw_pv_dc_power", value=(a[28] << 16) | a[29])
-        state.set("sensor.solis_raw_pv_ac_power", value=decode_s32(b[0], b[1]))
+        state.set("sensor.solis_raw_pv_dc_power", value=round(((a[28] << 16) | a[29]), 1)) 
+        state.set("sensor.solis_raw_pv_ac_power", value=round((decode_s32(b[0], b[1])), 1))
 
         # Batterie
         v_raw = c[0]

@@ -13,41 +13,17 @@ scene: !include scenes.yaml
 homeassistant:
   packages: !include_dir_named sensor_configs # (für separate YAML Dateien)
 
-#recorder:
-#  commit_interval: 60 # nur alle x Sekunden in Datenbank schreiben
-#  purge_keep_days: 10  # alte Daten löschen
+recorder:
+  commit_interval: 60 # nur alle x Sekunden in Datenbank schreiben
+  purge_keep_days: 10  # alte Daten löschen
 #  include:
 #    entity_globs:
-#      - sensor.*leistung* # Shelly's
-#      - sensor.*energie* # Shelly's
-#      - sensor.netz* # Eastron
-#      - sensor.solis* # Solis Datenlogger
-#      - sensor.batt* # Solis Datenlogger
-#      - sensor.gas* # Impulszähler am RPi GPIO
-#      - sensor.*production* # Solar Vorhersage
-#      - sensor.ebox* # wallbox
+#      - sensor.*
 #    entities:
-#      - sensor.hausverbrauch
-#      - sensor.wr_leistung
-#      - sensor.ha_datenbank_groesse
-#      - sensor.eastron_raw_e_imp # wird vom eastron pyscript als variable eingelesen
-#      - sensor.eastron_raw_e_exp # wird vom eastron pyscript als variable eingelesen
+#      - sensor.
 #  exclude:
 #    entity_globs:
-#      - sensor.*raw*
-#      - device_tracker.*
-#      - sensor.shelly*
-
-influxdb: # Aus HA Apps installiert - bessere Datenbank für zeitliche Abläufe 
-  include:
-    domains:
-      - sensor
-  exclude:
-    # Hier werden spezielle Sensoren ausgewählt, die ignoriert werden
-    # auch wenn sie oben durch ein Muster (Glob) erfasst wurden
-    entity_globs:
-      - sensor.*raw* # Schließt alle Sensoren aus, die "raw" im Namen haben
-      - sensor.*_status # Schließt Status-Texte aus (Influx mag Zahlen lieber)
+#      - sensor.*
 
 # nur krasse Sachen loggen
 #logger:
@@ -72,26 +48,3 @@ influxdb: # Aus HA Apps installiert - bessere Datenbank für zeitliche Abläufe
     
     # DNS logger (Namen für Geräte finden)
 #    homeassistant.components.dns: error
-
-# ===========================================
-# template sensor: Reload reicht
-# platform: integration und utility_meter: in configuration.yaml - immer Neustart nötig
-# ===========================================
-
-# === Riemann-Summe - Helfer für Energieverbrauch (kann nicht als Package geladen werden) ===
-
-sensor:
-  - platform: integration
-    source: sensor.wr_leistung
-    name: "Solis WR Energie"
-    unique_id: solis_wr_energy_integral
-    unit_prefix: k
-    round: 2
-    method: left
-
-utility_meter:
-  solis_wr_energie_taeglich:
-    source: sensor.solis_wr_energie
-    name: "Solis WR Energie Täglich"
-    unique_id: solis_wr_energy_daily
-    cycle: daily
