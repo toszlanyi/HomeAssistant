@@ -13,6 +13,20 @@ scene: !include scenes.yaml
 homeassistant:
   packages: !include_dir_named sensor_configs # (für separate YAML Dateien)
 
+command_line:
+  - sensor:
+
+#     Größe der Datenbank Datei
+
+      name: "HA Datenbank Groesse"
+      # Der Pfad zur SQLite Datei im Standard-Config-Ordner
+      command: "du -m /config/home-assistant_v2.db | cut -f1"
+      unit_of_measurement: "MB"
+      value_template: "{{ value | int }}"
+      scan_interval: 1800 # Zweimal pro Stunde prüfen reicht
+      unique_id: "ha_db_size_mb"
+      icon: mdi:database-check
+
 recorder:
   commit_interval: 60 # nur alle x Sekunden in Datenbank schreiben
   purge_keep_days: 10  # alte Daten löschen
