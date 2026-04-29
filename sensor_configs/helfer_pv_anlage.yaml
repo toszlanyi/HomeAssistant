@@ -1,26 +1,18 @@
-# --- Template Sensoren (Berechnungen) ---
-
 template:
   - sensor:
 
-#   Ladeenergie ins Auto (zusätzliche Kapazität in %)
-      - name: "Bis jetzt geladen (SOC)"
-        unique_id: car_session_charge_percentage
-        unit_of_measurement: "%"
-        device_class: battery
-        state_class: measurement
-        state: >
-          {% set energy = states('sensor.ebox_smart_energy_active_import_register') | float(0) %}
-          {% set capacity = 77 %}
-          {% if energy > 0 %}
-            {{ (energy / capacity * 100) | round(1) }}
-          {% else %}
-            0
-          {% endif %}
-        availability: >
-          {{ is_number(states('sensor.ebox_smart_energy_active_import_register')) }}
+#       Wechselrichter Temperatur
 
-#   PV Leistung nach Wandlung (AC Seite)
+      - name: "Solis Wechselrichter Temperatur"
+        unique_id: solis_wr_temperature
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+        icon: mdi:thermometer
+        state: "{{ states('sensor.solis_raw_wr_temperature') | float(0) }}"
+
+#       verfügbare PV Leistung (Überschuss)
+
       - name: "PV Leistung netto"
         unique_id: solis_pv_power_netto
         unit_of_measurement: "W"
@@ -30,10 +22,17 @@ template:
         state: >
           {% set dc = states('sensor.solis_raw_pv_dc_power') | float(0) %}
           {% set wr = states('sensor.wr_leistung_mit_glattung') | float(0) %}
-          {% set haus = states('sensor.solis_netzleistung_aktuell') | float(0) %}
+          {% set haus = states('sensor.hausverbrauch') | float(0) %}
           {% set wb = states('sensor.ebox_smart_power_active_import') | float(0) %}
+          {% set netto = (dc - wr - haus + (wb * 1000)) | float(0) %}
           
-          {{ (dc - wr - haus + (wb * 1000)) | round(1) }}
+          {% if netto > 0 %}
+            {{ netto | round(1) }}
+          {% else %}
+            0
+          {% endif %}
+
+#       verfügbarer PV Strom (Überschuss)
           
       - name: "PV Strom Überschuss"
         unique_id: pv_current_available
@@ -43,14 +42,19 @@ template:
         icon: mdi:solar-power
         state: >
           {% set ueberschuss = states('sensor.solis_pv_leistung_netto') | float(0) %}
-          {% set spannung = states('sensor.ebox_smart_voltage') | float(230) %}
-          {% if spannung > 200 %}
-            {{ (ueberschuss / (3 * spannung)) | round(1) }}
+          {% set u_l1 = states('sensor.netzspannung_l1') | float(0) %}
+          {% set u_l2 = states('sensor.netzspannung_l2') | float(0) %}
+          {% set u_l3 = states('sensor.netzspannung_l3') | float(0) %}
+          {% set u_avg = ((u_l1 + u_l2 + u_l3) / 3) | float(230) %}
+
+          {% if u_avg > 0 %}
+            {{ (ueberschuss / (3 * u_avg)) | round(1) }}
           {% else %}
-            {{ (ueberschuss / 690) | round(1) }}
+            0
           {% endif %}
 
-#   Errechnete Wechselrichter Leistung
+#       Errechnete Wechselrichter Leistung
+
       - name: "WR Leistung"
         unique_id: solis_inverter_power
         unit_of_measurement: "W"
@@ -85,7 +89,8 @@ template:
             {{ current_val | round(1) }}
           {% endif %}
 
-#   Wechselrichter Wirkungsgrad
+#       Wechselrichter Wirkungsgrad
+
       - name: "Solis WR Wirkungsgrad"
         unique_id: solis_inverter_efficiency
         unit_of_measurement: "%"
@@ -98,8 +103,15 @@ template:
           {% set haus = states('sensor.solis_netzleistung_aktuell') | float(0) %}
           {% set wr = states('sensor.wr_leistung_mit_glattung') | float(0) %}
           {% set x = [dc, ac, (batt | abs), haus] | max %}
+
           {% if x > 50 %}
-            {{ [((1 - (wr / (dc + batt))) * 100), 100] | min | round(1) }}
+            {% set wirkungsgrad = ((1 - (wr / (dc + batt))) * 100) %}
+          {% else %}
+            0
+          {% endif %}
+
+          {% if 0 <= wirkungsgrad <= 100 %}
+            {{ wirkungsgrad | round(1) }}
           {% else %}
             0
           {% endif %}
@@ -107,21 +119,20 @@ template:
 sensor:
 
 #   Wechselrichter Leistung - Glättung durch Mittelwerte
+
   - platform: statistics
     name: "WR Leistung mit Glättung"
     unique_id: solis_inverter_power_smoothed
     entity_id: sensor.wr_leistung
     state_characteristic: mean
-    # ==========================================
-    # HIER STELLST DU DIE ANZAHL DER WERTE EIN:
-    # ==========================================
+    # Anzahl der zuletzt genutzten Daten für den Durchschnitt
     sampling_size: 3
-    # Wir geben den Werten eine maximale Lebensdauer von 30 Minuten,
-    # falls der Wechselrichter nachts mal komplett offline geht.
+    # maximale Lebensdauer von 30 Minuten,
     max_age:
       minutes: 30
 
 #   Riemann-Summe - Helfer für Energieverbrauch
+
   - platform: integration
     source: sensor.wr_leistung_mit_glattung
     name: "Solis WR Energie"
@@ -139,22 +150,3 @@ utility_meter:
     unique_id: solis_wr_energy_daily
     cycle: daily
     periodically_resetting: false
-
-timer:
-  ebox_sleep_protection:
-    name: "eBox Sleep-Schutz Timer"
-    duration: "00:05:00"
-    icon: mdi:timer-outline
-
-command_line:
-  - sensor:
-
-#   Größe der Datenbank Datei
-      name: "HA Datenbank Groesse"
-      # Der Pfad zur SQLite Datei im Standard-Config-Ordner
-      command: "du -m /config/home-assistant_v2.db | cut -f1"
-      unit_of_measurement: "MB"
-      value_template: "{{ value | int }}"
-      scan_interval: 1800 # Zweimal pro Stunde prüfen reicht
-      unique_id: "ha_db_size_mb"
-      icon: mdi:database-check

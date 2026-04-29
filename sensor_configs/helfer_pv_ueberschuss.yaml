@@ -1,0 +1,45 @@
+template:
+  - sensor:
+
+#       Ladeenergie ins Auto (zusätzliche Kapazität in %)
+
+      - name: "Bis jetzt geladen (SOC)"
+        unique_id: car_session_charge_percentage
+        unit_of_measurement: "%"
+        device_class: battery
+        state_class: measurement
+        state: >
+          {% set energy = states('sensor.ebox_smart_energy_active_import_register') | float(0) %}
+          {% set capacity = 80 %}
+          {% if energy > 0 %}
+            {{ (energy / capacity * 100) | round(1) }}
+          {% else %}
+            0
+          {% endif %}
+        availability: >
+          {{ is_number(states('sensor.ebox_smart_energy_active_import_register')) }}
+
+timer:
+
+# Timer, bis Charge Control ausschaltet
+
+  ebox_sleep_protection:
+    name: "eBox Sleep-Schutz Timer"
+    duration: "00:05:00"
+    icon: mdi:timer-outline
+
+counter:
+
+# Zähler für eBox Schaltvorgänge
+
+  ebox_cc_einschaltvorgaenge:
+    name: "eBox CC Einschaltvorgänge"
+    initial: 0
+    step: 1
+    icon: mdi:toggle-switch
+
+  ebox_cc_ausschaltvorgaenge:
+    name: "eBox CC Ausschaltvorgänge"
+    initial: 0
+    step: 1
+    icon: mdi:toggle-switch-off
