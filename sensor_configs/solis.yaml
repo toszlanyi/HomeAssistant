@@ -94,7 +94,7 @@ template:
         device_class: power
         state_class: measurement
         icon: mdi:transmission-tower
-        # + Einspeisung | - Bezug
+        # - Einspeisung | + Bezug
         state: "{{ states('sensor.solis_raw_grid_power') | float(0) }}"
 
       - name: "Solis Netzbezug gesamt"
@@ -154,3 +154,13 @@ template:
         state_class: total_increasing
         icon: mdi:home-clock-outline
         state: "{{ states('sensor.solis_raw_house_today') | float(0) }}"
+
+      # --- Wechselrichter Temperatur ---
+
+      - name: "Solis Wechselrichter Temperatur"
+        unique_id: solis_wr_temperature
+        unit_of_measurement: "°C"
+        device_class: temperature
+        state_class: measurement
+        icon: mdi:thermometer
+        state: "{{ states('sensor.solis_raw_wr_temperature') | float(0) }}"

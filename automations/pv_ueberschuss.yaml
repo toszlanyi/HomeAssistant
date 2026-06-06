@@ -3,7 +3,7 @@
 # =============================================================================
 #
 # File:    config/automations/pv_ueberschuss.yaml
-# Version: 3.2
+# Version: 4.9
 #
 # -----------------------------------------------------------------------------
 # DESIGN PHILOSOPHY
@@ -14,59 +14,75 @@
 # The goal is maximum hardware longevity (contactor, battery cycles)
 # while still delivering meaningful charge energy to the car each sunny day.
 #
+# Power path:  PV → Inverter → House AC bus → eBox → Car (3-phase AC)
+#              House battery also connects to AC bus via inverter.
+#              The car receives AC only – no DC path to house battery.
+#              Car's 12V system is powered by its own traction battery
+#              via an internal DC/DC converter (independent of house SOC).
+#
 # -----------------------------------------------------------------------------
 # CONTROL LOGIC OVERVIEW
 # -----------------------------------------------------------------------------
 #
 # MUST PAUSE (immediate stop / keep stopped):
-#   - SOC below hard minimum            → protect battery
+#   - SOC below hard minimum            → protect house battery
 #   - Forecast below safety threshold   → reserve energy for the night
-#   - PV surplus below noise floor and Battery below (min_soc_limit + start_soc_offset)
-#     → no solar available (night / overcast) but enough Energy in Battery
+#   - Solar elevation ≤ 0°             → absolute darkness (night)
 #
-# CAN START (restart allowed only if ALL conditions are true):
-#   - Not too close to sunset           → avoid pointless evening charging
-#   - SOC recovered above restart level → battery buffer is available again
-#   - Forecast comfortably above threshold + hysteresis → no immediate re-stop
-#   - Surplus current sufficient or battery full → enough PVto actually charge
+# CAN START (restart allowed only if ALL conditions true):
+#   - Solar elevation > 25°            → enough sun for useful PV
+#   - SOC recovered above restart level → house battery buffer available
+#   - Forecast above threshold + hysteresis → no immediate re-stop
+#   - Surplus current sufficient or battery full
 #
-# SLEEP PROTECTION:
-#   - Car is set to 0 A, 5-min timer starts
-#   - If surplus returns → timer cancelled, charging resumes
-#   - If timer expires   → Charge Control switched off (prevents car deep sleep)
+# PAUSE / RESTART MECHANISM (IEC 61851 + OCPP 1.6J):
 #
-# PROTECTION:
-#   - switch.turn_on  only when CC is currently "off"
-#   - switch.turn_off only when CC is currently "on"
-#   → prevents OCPP StartTransaction / StopTransaction rejects
+#   PAUSE (must_pause fires):
+#     Set 0 A → CP-Pilot duty 0 % → State C→B → contactor opens (immediate).
+#     OCPP session stays active (SuspendedEVSE, no StopTransaction yet).
+#     Car (Ioniq 5) stays awake in State B; restart-lock timer starts.
+#
+#   MANDATORY OFF TIME (timer.ebox_sleep_protection):
+#     While the timer is active, charging is NOT resumed even if
+#     must_pause becomes false. This guarantees a minimum contactor
+#     dwell time and prevents rapid opening/closing cycles.
+#
+#   SHORT PAUSE – timer expires, conditions recovered:
+#     Block II detects SuspendedEVSE (or Charging) → sets target_amps →
+#     State B→C → contactor closes. Seamless resume, one extra contactor
+#     cycle.
+#
+#   LONG PAUSE / EVENING – timer expires, must_pause still True:
+#     Next tick: Block I Zweig C detects SuspendedEVSE + timer idle →
+#     turn_off (StopTransaction). Car enters deep sleep → minimal 12V drain.
+#     Next morning: cold start via Block II DEFAULT when conditions met.
+#
+#   CC turn_on / turn_off:
+#     turn_on  = StartTransaction (new session + authorisation, cold start only)
+#     turn_off = StopTransaction  (session ends, car may enter deep sleep)
 #
 # -----------------------------------------------------------------------------
-# CONNECTOR STATUS REFERENCE (sensor.ebox_smart_status_connector):
+# CONNECTOR STATUS (sensor.ebox_smart_status_connector):
 #   Available     – no car connected
-#   Preparing     – cable connected or car not yet authorised / session not started
+#   Preparing     – cable connected, session not yet started
 #   Charging      – actively charging
-#   SuspendedEV   – session active, car paused (e.g. car battery full / smart charge)
-#   SuspendedEVSE – session active, EVSE paused (e.g. 0 A set by automation)
+#   SuspendedEV   – session active, car paused
+#   SuspendedEVSE – session active, EVSE paused (0 A set by automation)
 #   Finishing     – session ending
-#   Unavailable   – wallbox offline / disabled
+#   Unavailable   – wallbox offline
 #   Faulted       – hardware fault
-#
-# is_plugged_in covers all states where a car is physically connected:
-#   Preparing, Charging, SuspendedEV, SuspendedEVSE, Finishing
 #
 # -----------------------------------------------------------------------------
 # SURPLUS CURRENT SENSOR:
-#   sensor.pv_strom_uberschuss
-#   = (DC_power - inverter_losses - house_consumption + wallbox_AC) / (3 × V_avg)
-#   Negative values reliably indicate night or heavy cloud cover.
-#   House consumption is already factored in – no separate term needed here.
+#   sensor.pv_strom_uberschuss_mit_glattung
+#   = (DC_power − inverter_losses − (house_consumption - wallbox_AC)) / (3 × V_avg)
 # =============================================================================
 
 - id: pv_ueberschuss_hauptsteuerung
-  alias: "PV Überschuss – Intelligente Steuerung"
+  alias: "PV Überschuss Laden"
   description: >
     Minute-by-minute charge current control based on PV surplus,
-    battery SOC, solar forecast, sunset cutoff and sleep protection.
+    battery SOC, solar forecast and solar elevation.
   mode: single
   max_exceeded: silent
 
@@ -84,122 +100,105 @@
 
         # =====================================================================
         # TUNING PARAMETERS
-        # All thresholds are centralised here for easy adjustment.
         # =====================================================================
 
-        # --- Battery protection ---
-        # Hard lower SOC limit. Charging stops immediately below this value.
-        # The car will never draw energy from the battery.
-        min_soc_limit: 40           # % SOC
-
-        # This is the BUFFER used for the battery.
-        # SOC must recover this many percent above min_soc_limit before the car
-        # is allowed to start charging again or drain the battery to this level.
-        # recommended: 20 - 40
-        start_soc_offset: 30        # % SOC  →  car charging above (min_soc_limit + start_soc_offset)
-        
-        # Battery full threshold – overrides min_amps_start in can_start.
-        # When SOC reaches this level, start charging the car even if surplus
-        # is below threshold. Export to grid is avoided.
-        soc_battery_full: 95        # % SOC
+        # --- House battery protection ---
+        min_soc_limit: 40           # % SOC – hard stop below this
+        start_soc_offset: 30        # % SOC – restart above (min + offset) = 70 %
+        soc_battery_full: 90        # % SOC – override min_amps_start when full
 
         # --- Solar forecast safety ---
-        # Multiplier applied to remaining battery capacity to calculate
-        # the minimum required forecast energy.
-        # Factor 2 conservatively covers: battery fill + house load until dark.
-        solar_safety_factor: 2.0
+        solar_safety_factor: 1.8    # × remaining battery capacity = min forecast
+        forecast_buffer_kwh: 3    # kWh – extra headroom for restart hysteresis
 
-        # Additional forecast headroom required for a RESTART (hysteresis).
-        # Prevents immediate re-stop after a restart near the threshold.
-        # Example: if stop threshold = 8 kWh, restart needs 8 + 3 = 11 kWh.
-        forecast_buffer_kwh: 3.0    # kWh
+        # --- Surplus current ---
+        min_amps_start: 6.5         # A – minimum surplus required to restart
 
-        # --- PV availability noise floor ---
-        # Surplus current below this value is treated as "no PV available".
-        # Covers night, heavy cloud cover and inverter standby.
-        # ~200 W at 3 × 230 V = 0.29 A – rounded up for safety.
-        min_pv_amps_noise: 0.3      # A  (≈ 200 W)
-
-        # Minimum surplus current required to RESTART car charging.
-        # Must be above the eBox minimum charge current (6 A) to avoid
-        # starting a session that immediately triggers sleep protection.
-        min_amps_start: 6.5        # A
-
-        # --- Sunset cutoff ---
-        # No new charging sessions will be started within this window
-        # before sunset. Running sessions continue until must_pause triggers.
-        # Rationale: a 77 kWh car battery gains little from a few evening kWh,
-        # and the contactor is spared unnecessary switching cycles.
-        cutoff_seconds: 12600       # 3.5 hours × 3600
+        # --- Solar elevation thresholds ---
+        # Two independent levels:
+        #   - night_threshold : below this it is physically dark; hard stop.
+        #   - min_elevation   : minimum elevation to allow a (re)start.
+        #                       Charging, once started, may continue below
+        #                       this value as long as night_threshold and
+        #                       other must_pause conditions are not met.
+        night_threshold: 0          # degrees – hard stop when elevation ≤ 0°
+        min_elevation: 20           # degrees – restart block below this
 
         # =====================================================================
         # RUNTIME CALCULATIONS
         # =====================================================================
 
-        # Sensor readings
+        charge_threshold: >
+          {{ states('input_number.ladegrenze') | float(30) }}
+        charge_status: >
+          {{ states('sensor.auto_ladesession_soc') | float(0) }}
         soc: >
           {{ states('sensor.batterie_soc') | float(0) }}
         solar_remaining: >
           {{ states('sensor.solar_vorhersage_heute_verbleibend') | float(0) }}
         raw_amps: >
-          {{ states('sensor.pv_strom_uberschuss') | float(0) }}
+          {{ states('sensor.pv_strom_uberschuss_mit_glattung') | float(0) }}
+        current_offered: >
+          {{ states('sensor.ebox_smart_current_offered') | float(0) }}
 
-        # Remaining battery capacity until 100 %
-        # Used to scale the forecast threshold to actual battery state.
         batt_remaining_kwh: >
           {{ ((100 - soc) / 100 * 10) | round(2) }}
-
-        # Minimum forecast needed to cover battery fill + house load until dark.
-        # If forecast drops below this, the battery must be reserved for the night.
         solar_threshold: >
           {{ (batt_remaining_kwh * solar_safety_factor) | round(2) }}
 
-        # Sunset timing
-        sunset: >
-          {{ as_timestamp(states('sensor.sun_next_setting')) }}
-        now_ts: >
-          {{ as_timestamp(now()) }}
-        is_too_late: >
-          {{ (sunset - now_ts) < cutoff_seconds }}
+        sun_elevation: >
+          {{ states('sensor.sun_solar_elevation') | float(0) }}
 
-        # Connector status
         connector_status: >
           {{ states('sensor.ebox_smart_status_connector') }}
-        is_plugged_in: >
-          {{ connector_status in ['Preparing', 'Charging', 'SuspendedEV', 'SuspendedEVSE', 'Finishing'] }}
 
         # --- Decision flags ---
 
-        # TRUE → stop immediately or keep stopped
-        # Combines all hard stop conditions in one readable variable.
         must_pause: >
           {{ soc < min_soc_limit
+             or charge_status >= charge_threshold
              or solar_remaining < solar_threshold
-             or (raw_amps < min_pv_amps_noise and soc < (min_soc_limit + start_soc_offset)) }}
+             or sun_elevation <= night_threshold }}
 
-        # TRUE → a new charging session is permitted
-        # All four sub-conditions must hold simultaneously.
         can_start: >
-          {{ not is_too_late
+          {{ sun_elevation > min_elevation
+             and charge_status < charge_threshold
              and soc >= (min_soc_limit + start_soc_offset)
-             and solar_remaining >= (solar_threshold + forecast_buffer_kwh)
-             and (raw_amps >= min_amps_start or soc >= soc_battery_full) }}
+             and (raw_amps >= min_amps_start or soc >= soc_battery_full)
+             and solar_remaining >= (solar_threshold + forecast_buffer_kwh) }}
 
-        # Charge current target
-        # Round UP when battery is full (≥ 90 % SOC) so the battery can
-        # buffer small surges; round DOWN below 90 % to keep battery priority.
-        target_amps: >
-          {% if soc >= 90 %}
-            {{ [[raw_amps | round(0, 'ceil') | int, 6] | max, 16] | min }}
+        # Round UP above restart threshold → battery buffered, favour car.
+        # Round DOWN below (threshold - 10)→ house battery priority.
+        round_up: >
+          {% set soc_val = states('sensor.batterie_soc') | float(0) %}
+          {% if soc_val > (min_soc_limit + start_soc_offset) %}
+            {{ true }}
+          {% elif soc_val < (min_soc_limit + start_soc_offset - 10) %}
+            {{ false }}
           {% else %}
-            {{ [[raw_amps | int, 6] | max, 16] | min }}
+            {{ is_state('input_boolean.pv_runden_aufrunden', 'on') }}
           {% endif %}
+
+        # Max current 14A for a 10kW inverter -> no power from grid wanted,
+        # in case of false sensor information or race condition
+        # rounding up adds 1A to ensure battery discharge
+        # rounding down subtracts 1A to ensure battery charges
+        target_amps: >
+          {% if round_up | bool %}
+            {{ [[(raw_amps + 1) | round(0, 'ceil') | int, 6] | max, 14] | min }}
+          {% else %}
+            {{ [[(raw_amps - 1) | int, 6] | max, 14] | min }}
+          {% endif %}
+
+    - service: "input_boolean.{{ 'turn_on' if round_up | bool else 'turn_off' }}"
+      target:
+        entity_id: input_boolean.pv_runden_aufrunden
 
     - choose:
 
         # =====================================================================
         # BLOCK I – MUST PAUSE
-        # Triggered by: low SOC / insufficient forecast / no PV available
+        # Triggered by: low SOC / insufficient forecast / complete darkness
         # =====================================================================
         - conditions:
             - condition: template
@@ -207,18 +206,53 @@
           sequence:
             - choose:
 
-                # Sleep timer already running → do nothing, wait it out
+                # -----------------------------------------------------------------
+                # Branch A: Car unplugged while paused – turn off immediately.
+                # -----------------------------------------------------------------
+                - conditions:
+                    - condition: state
+                      entity_id: switch.ebox_smart_charge_control
+                      state: "on"
+                    - condition: template
+                      value_template: "{{ connector_status == 'Available' }}"
+                  sequence:
+                    - service: timer.cancel
+                      target:
+                        entity_id: timer.ebox_sleep_protection
+                    - service: switch.turn_off
+                      target:
+                        entity_id: switch.ebox_smart_charge_control
+                    - service: logbook.log
+                      data:
+                        name: "eBox aus (Auto getrennt) –> "
+                        entity_id: input_button.pv_uberschuss_log
+                        message: >
+                          Auto während Pause abgesteckt. StopTransaction ausgelöst.
+
+                # -----------------------------------------------------------------
+                # Branch B: Restart-lock timer is running → wait it out.
+                # -----------------------------------------------------------------
                 - conditions:
                     - condition: state
                       entity_id: timer.ebox_sleep_protection
                       state: "active"
                   sequence: []
 
-                # CC active → set 0 A and start 5-min sleep protection timer
+                # -----------------------------------------------------------------
+                # Branch C: CC on and session active → pause.
+                # Covers Charging, SuspendedEV (car-side pause) and Finishing.
+                # Set 0 A: CP-Pilot duty 0 % → IEC 61851 State C→B → contactor opens.
+                # OCPP session stays active (SuspendedEVSE, no StopTransaction yet).
+                # Restart-lock timer starts. Decision to stop session is deferred:
+                #   - if conditions recover before timer expires → Block II resumes
+                #   - if timer expires and must_pause still True → Branch C stops session
+                # -----------------------------------------------------------------
                 - conditions:
                     - condition: state
                       entity_id: switch.ebox_smart_charge_control
                       state: "on"
+                    - condition: template
+                      value_template: "{{ connector_status in ['Charging', 'Finishing'] }}"
                   sequence:
                     - service: number.set_value
                       target:
@@ -230,16 +264,53 @@
                         entity_id: timer.ebox_sleep_protection
                     - service: logbook.log
                       data:
-                        name: "PV Überschuss"
+                        name: "Pause (0 A) –> "
+                        entity_id: input_button.pv_uberschuss_log
                         message: >
-                          Pause (0 A) – Reason:
-                          {% if raw_amps < min_pv_amps_noise %}
-                            No PV ({{ raw_amps | round(2) }} A < {{ min_pv_amps_noise }} A) and SOC {{ soc | round(1) }}% below {{ min_soc_limit + start_soc_offset }}%
-                          {% elif soc < min_soc_limit %}
-                            SOC {{ soc | round(1) }}% below hard minimum {{ min_soc_limit }}%
+                          {% if soc < min_soc_limit %}
+                            SOC {{ soc | round(1) }}% – unter dem absoluten Minimum von {{ min_soc_limit }}%
+                          {% elif sun_elevation <= night_threshold %}
+                            Sonne unter {{ night_threshold }}° (Nacht)
+                          {% elif charge_status >= charge_threshold %}
+                            Auto fertig geladen (Ladegrenze von {{ charge_status }}% erreicht)
                           {% else %}
-                            Forecast {{ solar_remaining }} kWh below safety threshold {{ solar_threshold }} kWh
-                            (battery needs {{ batt_remaining_kwh }} kWh × factor {{ solar_safety_factor }})
+                            PV Vorhersage {{ solar_remaining }} kWh unter Sicherheitsgrenze {{ solar_threshold }} kWh
+                            (Batterie {{ batt_remaining_kwh }} kWh × {{ solar_safety_factor }})
+                          {% endif %}
+
+                # -----------------------------------------------------------------
+                # Branch D: CC on, session paused (SuspendedEVSE), timer idle.
+                # The restart-lock timer has expired and conditions are still not met.
+                # Send StopTransaction → car enters deep sleep → minimal 12V drain.
+                # connector_status='SuspendedEVSE' is used instead of current_offered=0
+                # to guard against OCPP sensor unavailability (float(0) false positive).
+                # -----------------------------------------------------------------
+                - conditions:
+                    - condition: state
+                      entity_id: switch.ebox_smart_charge_control
+                      state: "on"
+                    - condition: template
+                      value_template: "{{ connector_status == 'SuspendedEVSE' }}"
+                    - condition: state
+                      entity_id: timer.ebox_sleep_protection
+                      state: "idle"
+                  sequence:
+                    - service: switch.turn_off
+                      target:
+                        entity_id: switch.ebox_smart_charge_control
+                    - service: logbook.log
+                      data:
+                        name: "eBox ausgeschaltet –> "
+                        entity_id: input_button.pv_uberschuss_log
+                        message: >
+                          Restart-Sperre abgelaufen, Bedingungen weiterhin nicht erfüllt.
+                          StopTransaction – Auto geht in Deep-Sleep.
+                          {% if soc < min_soc_limit %}
+                            Ursache: SOC {{ soc | round(1) }}% unter {{ min_soc_limit }}%
+                          {% elif sun_elevation <= night_threshold %}
+                            Ursache: Sonne unter {{ night_threshold }}° (Nacht)
+                          {% else %}
+                            Ursache: PV Vorhersage {{ solar_remaining }} kWh < {{ solar_threshold }} kWh
                           {% endif %}
 
         # =====================================================================
@@ -250,132 +321,186 @@
         - choose:
 
             # -----------------------------------------------------------------
-            # CC is off or sleep timer is active → evaluate restart conditions
+            # Branch A: Car unplugged while charging (must_pause = false).
+            # If the car was disconnected during an active session, turn off CC
+            # immediately to avoid a stuck ON state.
             # -----------------------------------------------------------------
             - conditions:
-                - condition: or
-                  conditions:
-                    - condition: state
-                      entity_id: switch.ebox_smart_charge_control
-                      state: "off"
-                    - condition: state
-                      entity_id: timer.ebox_sleep_protection
-                      state: "active"
+                - condition: state
+                  entity_id: switch.ebox_smart_charge_control
+                  state: "on"
                 - condition: template
-                  value_template: "{{ not can_start }}"
+                  value_template: "{{ connector_status in ['Available'] }}"
               sequence:
-                # Restart blocked – log reason and exit this automation cycle
+                - service: timer.cancel
+                  target:
+                    entity_id: timer.ebox_sleep_protection
+                - service: number.set_value
+                  target:
+                    entity_id: number.ebox_smart_maximum_current
+                  data:
+                    value: 0
+                - delay:
+                    seconds: 15 # matches interval of wallbox communication time
+                - service: switch.turn_off
+                  target:
+                    entity_id: switch.ebox_smart_charge_control
                 - service: logbook.log
                   data:
-                    name: "PV Überschuss"
+                    name: "eBox aus (Auto getrennt) –> "
+                    entity_id: input_button.pv_uberschuss_log
                     message: >
-                      Restart blocked –
-                      {% if is_too_late %}
-                        Sunset cutoff active ({{ ((sunset - now_ts) / 3600) | round(1) }} h to sunset)
-                      {% elif raw_amps < min_amps_start %}
-                        Surplus {{ raw_amps | round(2) }} A below start threshold {{ min_amps_start }} A
-                      {% elif solar_remaining < (solar_threshold + forecast_buffer_kwh) %}
-                        Forecast hysteresis: {{ solar_remaining }} kWh < {{ (solar_threshold + forecast_buffer_kwh) | round(2) }} kWh
-                        (threshold {{ solar_threshold }} kWh + buffer {{ forecast_buffer_kwh }} kWh)
-                      {% else %}
-                        SOC {{ soc | round(1) }}% still recovering
-                        (need {{ min_soc_limit + start_soc_offset }}% to restart)
-                      {% endif %}
+                      Aktive Ladung von extern (App / Auto) gestoppt.
 
-          # -------------------------------------------------------------------
-          # DEFAULT: charging is active or restart is permitted → set current
-          # -------------------------------------------------------------------
-          default:
-            # Cancel sleep timer if it was running
-            - service: timer.cancel
-              target:
-                entity_id: timer.ebox_sleep_protection
+            # -----------------------------------------------------------------
+            # Branch B: Mandatory contactor OFF time.
+            # As long as the sleep protection timer is active, do absolutely
+            # nothing – even if must_pause is already false.
+            # -----------------------------------------------------------------
+            - conditions:
+                - condition: state
+                  entity_id: timer.ebox_sleep_protection
+                  state: "active"
+              sequence: []
 
-            # Switch CC on only if currently off (contactor protection)
-            - choose:
-                - conditions:
-                    - condition: state
-                      entity_id: switch.ebox_smart_charge_control
-                      state: "off"
-                    - condition: template
-                      value_template: "{{ is_plugged_in }}"
-                  sequence:
-                    - service: switch.turn_on
-                      target:
-                        entity_id: switch.ebox_smart_charge_control
-                    - service: logbook.log
-                      data:
-                        name: "PV Überschuss"
-                        message: >
-                          Charge Control ON – SOC {{ soc | round(1) }}%,
-                          forecast {{ solar_remaining }} kWh
-                          (threshold {{ solar_threshold }} kWh + buffer {{ forecast_buffer_kwh }} kWh),
-                          surplus {{ raw_amps | round(2) }} A
+            # -----------------------------------------------------------------
+            # Branch C: FULL RESTART ALLOWED (can_start True).
+            # Cold start if CC off, or adjust current if already charging.
+            # -----------------------------------------------------------------
+            - conditions:
+                - condition: template
+                  value_template: "{{ can_start }}"
+              sequence:
+                - service: timer.cancel
+                  target:
+                    entity_id: timer.ebox_sleep_protection
 
-            # Set charge current
-            - service: number.set_value
-              target:
-                entity_id: number.ebox_smart_maximum_current
-              data:
-                value: "{{ target_amps }}"
-            - service: logbook.log
-              data:
-                name: "PV Überschuss"
-                message: >
-                  Current set to {{ target_amps }} A
-                  (raw surplus {{ raw_amps | round(2) }} A,
-                  SOC {{ soc | round(1) }}%,
-                  rounding: {{ 'UP – battery buffering' if soc >= 90 else 'DOWN – battery priority' }})
+                # Cold start: CC off → StartTransaction (new OCPP session 6A)
+                - choose:
+                    - conditions:
+                        - condition: state
+                          entity_id: switch.ebox_smart_charge_control
+                          state: "off"
+                        - condition: template
+                          value_template: "{{ connector_status in ['Preparing', 'SuspendedEVSE', 'Finishing'] }}"
+                      sequence:
+                        - service: number.set_value
+                          target:
+                            entity_id: number.ebox_smart_maximum_current
+                          data:
+                            value: 6 # switch on with minimum current
+                        - delay:
+                            seconds: 15
+                        - service: switch.turn_on
+                          target:
+                            entity_id: switch.ebox_smart_charge_control
+                        - service: logbook.log
+                          data:
+                            name: "eBox eingeschaltet –> "
+                            entity_id: input_button.pv_uberschuss_log
+                            message: >
+                              PV Überschuss {{ raw_amps | round(2) }} A,
+                              SOC {{ soc | round(1) }}%,
+                              PV Vorhersage {{ solar_remaining }} kWh
+                              (Grenzwert {{ solar_threshold }} kWh + Puffer {{ forecast_buffer_kwh }} kWh)
 
+                # Set charge current
+                - choose:
+                    - conditions:
+                        - condition: state
+                          entity_id: switch.ebox_smart_charge_control 
+                          state: "on"
+                        - condition: template
+                          value_template: "{{ target_amps != current_offered }}"
+                      sequence:
+                        - service: number.set_value
+                          target:
+                            entity_id: number.ebox_smart_maximum_current
+                          data:
+                            value: "{{ target_amps }}"
+                        - service: logbook.log
+                          data:
+                            name: "Setze Ladestrom -> "
+                            entity_id: input_button.pv_uberschuss_log
+                            message: >
+                              Strom: {{ target_amps }} A
+                              (PV Überschuss: {{ raw_amps | round(1) }} A,
+                              SOC: {{ soc | round(0) }} %)
+
+            # -----------------------------------------------------------------
+            # BLOCK III - RUNNING SESSION, can_start = False.
+            # must_pause is false, so if the car is still in a charging session
+            # (Charging, SuspendedEVSE or Finishing) we may continue delivering
+            # current. This explicitly does NOT start a new session; it only
+            # keeps an existing one alive even though a fresh start would be
+            # blocked.
+            # -----------------------------------------------------------------
+            - conditions:
+                - condition: template
+                  value_template: "{{ not can_start }}"
+                - condition: state
+                  entity_id: switch.ebox_smart_charge_control
+                  state: "on"
+                - condition: template
+                  value_template: "{{ connector_status == 'Charging' }}"
+              sequence:
+                - choose:
+                    - conditions:
+                        - condition: template
+                          value_template: "{{ target_amps != current_offered }}"
+                      sequence:
+                        - service: number.set_value
+                          target:
+                            entity_id: number.ebox_smart_maximum_current
+                          data:
+                            value: "{{ target_amps }}"
+                        - service: logbook.log
+                          data:
+                            name: "Ladesession fortgesetzt -> "
+                            entity_id: input_button.pv_uberschuss_log
+                            message: >
+                              Strom: {{ target_amps }} A (Session aktiv, PV Überschuss {{ raw_amps | round(1) }} A,
+                              SOC {{ soc | round(0) }}%)
+
+            # -----------------------------------------------------------------
+            # DEFAULT: No start allowed (CC off or status not ready).
+            # Simply wait without action.
+            # -----------------------------------------------------------------
+          default: []
 
 # =============================================================================
-# SLEEP PROTECTION TIMER EXPIRED
-# Switches CC off after 5 minutes at 0 A to prevent car deep sleep.
+# MODE ACTIVATED – log entry
 # =============================================================================
-- id: pv_ueberschuss_sleep_schutz
-  alias: "PV Überschuss – Sleep-Timer Ende"
+- id: pv_ueberschuss_aktiviert
+  alias: "PV Überschuss – Modus aktiviert"
   description: >
-    Turns off Charge Control when the 5-minute sleep protection timer expires.
-    Prevents the car from entering deep sleep mode while connected at 0 A.
+    Logs a single entry when surplus charging mode is switched on manually.
   mode: single
 
   trigger:
-    - platform: event
-      event_type: timer.finished
-      event_data:
-        entity_id: timer.ebox_sleep_protection
-
-  condition:
-    - condition: state
+    - platform: state
       entity_id: input_boolean.pv_uberschussladen
-      state: "on"
+      to: "on"
 
   action:
-    - choose:
-        - conditions:
-            - condition: state
-              entity_id: switch.ebox_smart_charge_control
-              state: "on"
-          sequence:
-            - service: switch.turn_off
-              target:
-                entity_id: switch.ebox_smart_charge_control
     - service: logbook.log
       data:
-        name: "PV Überschuss"
+        name: "PV Überschuss aktiviert -> "
+        entity_id: input_button.pv_uberschuss_log
         message: >
-          Charge Control OFF – sleep protection timer expired after 5 min
-          (car deep sleep prevented)
-
+          PV Überschuss: {{ states('sensor.pv_strom_uberschuss_mit_glattung') | float(0) | round(1) }} A,
+          SOC: {{ states('sensor.batterie_soc') | float(0) | round(0) }} %
 
 # =============================================================================
 # MODE DEACTIVATED – clean up
-# Cancels timer and resets current to safe minimum when mode is switched off.
+# Sets 0 A first (contactor opens via IEC 61851 State C→B),
+# then CC turn_off (StopTransaction). Timer cancelled.
 # =============================================================================
 - id: pv_ueberschuss_deaktiviert
   alias: "PV Überschuss – Modus deaktiviert"
   description: >
-    Cleans up state when surplus charging mode is switched off manually.
+    Cleans up when surplus charging mode is switched off manually.
+    Sets 0 A first (contactor opens), then StopTransaction. Timer cancelled.
   mode: single
 
   trigger:
@@ -387,17 +512,13 @@
     - service: timer.cancel
       target:
         entity_id: timer.ebox_sleep_protection
-    - service: number.set_value
-      target:
-        entity_id: number.ebox_smart_maximum_current
-      data:
-        value: 6
     - service: logbook.log
       data:
-        name: "PV Überschuss"
-        message: "Mode deactivated – current reset to 6 A, timer cancelled"
-
-
+        name: "PV Überschuss deaktiviert -> "
+        entity_id: input_button.pv_uberschuss_log
+        message: >
+          manuelles Laden wird fortgesetzt. 
+          
 # =============================================================================
 # Counts CC on/off events. Reset daily at midnight.
 # =============================================================================
@@ -418,6 +539,7 @@
   trigger:
     - platform: state
       entity_id: switch.ebox_smart_charge_control
+      from: "on"
       to: "off"
   action:
     - service: counter.increment

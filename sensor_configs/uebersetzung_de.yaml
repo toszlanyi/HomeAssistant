@@ -1,0 +1,30 @@
+# uebersetzung.yaml
+# ---------------------------------------------------------------------------
+# Deutsche Übersetzung fuer den OCPP Connector-Status (eBox Smart)
+# ---------------------------------------------------------------------------
+
+template:
+  - sensor:
+      - name: "eBox Smart Connector Status (DE)"
+        unique_id: ebox_status_connector_de
+        icon: mdi:ev-station
+        state: >
+          {% set quelle = 'sensor.ebox_smart_status_connector' %}
+          {% set s = states(quelle) | lower %}
+          {% set m = {
+            'available': 'Verfügbar',
+            'preparing': 'Vorbereitung (Ladekabel steckt)',
+            'charging': 'Lädt',
+            'suspendedev': 'Pausiert (Fahrzeug)',
+            'suspendedevse': 'Pausiert (Ladestation)',
+            'finishing': 'Fertig geladen (Ladekabel steckt noch)',
+            'reserved': 'Reserviert',
+            'unavailable': 'Nicht verfügbar',
+            'faulted': 'Fehler',
+            'occupied': 'Belegt'
+          } %}
+          {{ m.get(s, states(quelle)) }}
+        availability: >
+          {{ states('sensor.ebox_smart_status_connector') not in ['unknown', 'unavailable'] }}
+        attributes:
+          original_status: "{{ states('sensor.ebox_smart_status_connector') }}"

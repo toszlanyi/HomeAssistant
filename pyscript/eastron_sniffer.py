@@ -1,13 +1,13 @@
-import sys
+import socket
 import struct
+import time
 
-MODULE_PATH = "/config/pyscript_modules"
-if MODULE_PATH not in sys.path:
-    sys.path.append(MODULE_PATH)
-
-import eastron_driver
-
-EASTRON_ID = 0x01
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+WAVESHARE_IP   = "192.168.178.24"
+WAVESHARE_PORT = 502
+EASTRON_ID     = 0x01
 
 # Phantom-Schwelle: Phasenleistung muss diesen Wert überschreiten,
 # damit das Vorzeichen als "aktiv" gilt (Rauschfilter)
@@ -18,6 +18,10 @@ PHANTOM_THRESHOLD_W = 1
 # ausgegangen wird. Überschreitet die Summe diesen Wert, liegt echter
 # Netzbezug oder -einspeisung vor.
 PHANTOM_MAX_TOTAL_W = 100
+
+# Sniff duration — slightly less than the trigger interval of 20s
+SNIFF_DURATION = 15.0
+
 
 # ============================================================================
 # OFFSET-TRACKING für Phantom-Energie (Version 4)
@@ -32,10 +36,22 @@ _e_imp_last_good     = 0.0
 _e_exp_last_good     = 0.0
 _offset_initialized  = False
 
+# Fix 1: Phantom-Erkennung erst aktiv wenn alle drei Phasen mindestens
+# einmal einen echten Messwert hatten
+_phases_initialized  = False
+_p1_seen = False
+_p2_seen = False
+_p3_seen = False
+
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
 
 def is_phantom(p1, p2, p3):
     """
     Phantom-Erkennung über Phasen-Vorzeichen und Gesamtsumme.
+    Gibt True zurück wenn Phantomstrom erkannt wird, sonst False.
     """
     positiv = len([p for p in [p1, p2, p3] if p > PHANTOM_THRESHOLD_W])
     negativ = len([p for p in [p1, p2, p3] if p < -PHANTOM_THRESHOLD_W])
@@ -43,27 +59,76 @@ def is_phantom(p1, p2, p3):
     # Bedingung 1: Gemischte Vorzeichen auf den Phasen
     mixed_signs = (positiv > 0 and negativ > 0)
 
-    # Bedingung 2: Die Summe aller Phasen ist nahe 0 (kleiner als Schwellwert)
-    # Summenprüfung nur bei mixed_signs
-    if mixed_signs:
-        total_power = abs(p1 + p2 + p3)
-        # Wenn die Summe klein genug ist, ist es Phantomstrom vom Wechselrichter
-        return total_power <= PHANTOM_MAX_TOTAL_W
+    if not mixed_signs:
+        return False
 
-    # Falls die Vorzeichen nicht gemischt sind, ist es immer "echter" Stromfluss
-    return False
+    # Bedingung 2: Die Summe aller Phasen ist nahe 0
+    return abs(p1 + p2 + p3) <= PHANTOM_MAX_TOTAL_W
+
+
+# ============================================================================
+# NETWORK I/O — runs in thread executor to avoid blocking the event loop.
+# Passive sniffer: collects all RS485 traffic mirrored by the Waveshare adapter.
+# The inner receive loop with short timeouts must run in native Python.
+# ============================================================================
+
+@pyscript_executor
+def _sniff_raw_data(duration=SNIFF_DURATION):
+    """
+    Opens a TCP connection to the Waveshare RS485-to-ETH adapter and collects
+    all mirrored RS485 bus traffic for the given duration.
+    Returns the raw byte buffer, or None on connection failure.
+    """
+    buffer = b""
+    s = None
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(0.5)  # Timeout für den Verbindungsaufbau
+        s.connect((WAVESHARE_IP, WAVESHARE_PORT))
+
+        start_time = time.time()
+        s.settimeout(0.005)  # Kurzer Intervall-Timeout für die Loop
+
+        while (time.time() - start_time) < duration:
+            try:
+                # Alles empfangen, was der Waveshare auf den Bus spiegelt
+                chunk = s.recv(4096)
+                if not chunk:
+                    break
+                buffer += chunk
+            except socket.timeout:
+                continue
+
+    except Exception:
+        return None
+    finally:
+        if s:
+            s.close()
+
+    return buffer
+
+
+# ============================================================================
+# STARTUP — letzte bekannte korrigierte Werte aus HA laden
+# ============================================================================
 
 @time_trigger("startup")
 def init_on_startup():
     """
     Beim Start letzte bekannte korrigierte Werte aus HA laden.
+    Wartet 10s damit HA Zeit hat, alle States zu laden.
     """
-    global _e_imp_last_good, _e_exp_last_good
+    global _e_imp_last_good, _e_exp_last_good, _offset_initialized
+
+    task.sleep(10)
 
     try:
         imp = state.get('sensor.eastron_raw_e_imp')
         exp = state.get('sensor.eastron_raw_e_exp')
 
+        # Fix 2: offset_initialized bleibt False bis Startup erfolgreich war.
+        # Nur wenn echte Werte geladen werden, wird last_good gesetzt und
+        # der Offset beim ersten Messwert korrekt berechnet.
         if imp not in (None, 'unknown', 'unavailable'):
             _e_imp_last_good = float(imp)
             log.info(f"Startup: e_imp initialisiert mit {_e_imp_last_good} kWh")
@@ -80,17 +145,27 @@ def init_on_startup():
         log.error(f"Startup Init Fehler: {e}")
 
 
-@time_trigger("period(0, 15)")
-async def process_eastron_data():
+# ============================================================================
+# MAIN TASK
+# ============================================================================
 
+@time_trigger("period(10, 15)")
+def process_eastron_data():
+    """
+    Triggered every 15 seconds. Sniffs RS485 bus traffic between the Solis
+    inverter and the Eastron smart meter, parses Modbus RTU request/response
+    frame pairs, applies phantom power detection and offset tracking, and
+    writes corrected values to Home Assistant sensor states.
+    """
     global _phantom_was_active
     global _e_imp_phantom_start, _e_exp_phantom_start
     global _e_imp_offset, _e_exp_offset
     global _e_imp_last_good, _e_exp_last_good
     global _offset_initialized
+    global _phases_initialized, _p1_seen, _p2_seen, _p3_seen
 
-    # Den blockierenden Socket-Aufruf sicher in den Executor auslagern
-    buffer = await task.executor(eastron_driver.get_raw_data, duration=19.0)
+    buffer = _sniff_raw_data()
+
     if not buffer or len(buffer) < 8:
         return
 
@@ -131,8 +206,10 @@ async def process_eastron_data():
                                 stats["p1"].append(v[6]); stats["p2"].append(v[7]); stats["p3"].append(v[8])
 
                             # --- FLEXIBLE LOGIK FÜR ENERGIE & P-TOTAL ---
+                            # Prüft, ob die Ziel-Register im angefragten Bereich liegen
                             for target_reg, target_key in [(52, "p_tot"), (72, "e_exp"), (74, "e_imp")]:
                                 if reg_start <= target_reg < reg_start + reg_count:
+                                    # Jedes Register belegt 2 Bytes, Offset berechnen
                                     byte_offset = (target_reg - reg_start) * 2
                                     if len(payload) >= byte_offset + 4:
                                         val = struct.unpack('>f', payload[byte_offset:byte_offset+4])[0]
@@ -149,19 +226,41 @@ async def process_eastron_data():
     # PHANTOM-ERKENNUNG auf Basis der gemittelten Phasenleistungen
     # ========================================================================
 
-    avg_p1 = sum(stats["p1"]) / len(stats["p1"]) if stats["p1"] else 0.0
-    avg_p2 = sum(stats["p2"]) / len(stats["p2"]) if stats["p2"] else 0.0
-    avg_p3 = sum(stats["p3"]) / len(stats["p3"]) if stats["p3"] else 0.0
+    avg_p1 = sum(stats["p1"]) / len(stats["p1"]) if stats["p1"] else None
+    avg_p2 = sum(stats["p2"]) / len(stats["p2"]) if stats["p2"] else None
+    avg_p3 = sum(stats["p3"]) / len(stats["p3"]) if stats["p3"] else None
 
-    phantom = is_phantom(avg_p1, avg_p2, avg_p3)
+    # Fix 1: Phasen-Initialisierung tracken — erst wenn alle drei Phasen
+    # mindestens einen echten Messwert hatten, ist die Erkennung valide
+    if avg_p1 is not None:
+        _p1_seen = True
+    if avg_p2 is not None:
+        _p2_seen = True
+    if avg_p3 is not None:
+        _p3_seen = True
+
+    if not _phases_initialized:
+        if _p1_seen and _p2_seen and _p3_seen:
+            _phases_initialized = True
+            log.info("Eastron: Alle Phasen initialisiert, Phantom-Erkennung aktiv")
+        else:
+            log.debug("Eastron: Warte auf Initialisierung aller Phasen")
+
+    # Fallback auf 0.0 nur für state.set — nicht für Phantom-Erkennung
+    p1 = avg_p1 if avg_p1 is not None else 0.0
+    p2 = avg_p2 if avg_p2 is not None else 0.0
+    p3 = avg_p3 if avg_p3 is not None else 0.0
+
+    phantom = _phases_initialized and is_phantom(p1, p2, p3)
 
     state.set("sensor.eastron_raw_phantom_active",
               value=1 if phantom else 0,
               attributes={
-                  'p1': round(avg_p1, 1),
-                  'p2': round(avg_p2, 1),
-                  'p3': round(avg_p3, 1),
-                  'p_tot_calc': round(avg_p1 + avg_p2 + avg_p3, 1)
+                  'p1': round(p1, 1),
+                  'p2': round(p2, 1),
+                  'p3': round(p3, 1),
+                  'p_tot_calc': round(p1 + p2 + p3, 1),
+                  'phases_ready': _phases_initialized,
               })
 
     # ========================================================================
@@ -173,6 +272,10 @@ async def process_eastron_data():
 
     if e_imp_raw is not None and e_exp_raw is not None:
 
+        # Fix 2: Offset erst initialisieren wenn Startup-Werte geladen wurden.
+        # _e_imp_last_good und _e_exp_last_good sind nach init_on_startup
+        # entweder die letzten bekannten HA-Werte oder 0.0 (kein HA-Wert).
+        # In beiden Fällen ist der Offset nach dem ersten Messwert korrekt.
         if not _offset_initialized:
             _e_imp_offset = e_imp_raw - _e_imp_last_good
             _e_exp_offset = e_exp_raw - _e_exp_last_good
@@ -188,7 +291,7 @@ async def process_eastron_data():
             _e_exp_phantom_start = e_exp_raw
             log.debug(
                 f"Phantom START – e_imp={e_imp_raw:.2f}, e_exp={e_exp_raw:.2f} "
-                f"(p1={round(avg_p1)}W, p2={round(avg_p2)}W, p3={round(avg_p3)}W)"
+                f"(p1={round(p1)}W, p2={round(p2)}W, p3={round(p3)}W)"
             )
 
         # Phantom endet

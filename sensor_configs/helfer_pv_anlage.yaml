@@ -1,16 +1,20 @@
 template:
   - sensor:
+  
+#       netto Hausverbrauch = Hausverbrauch - Wallbox
 
-#       Wechselrichter Temperatur
-
-      - name: "Solis Wechselrichter Temperatur"
-        unique_id: solis_wr_temperature
-        unit_of_measurement: "°C"
-        device_class: temperature
+      - name: "Haus ohne Wallbox"
+        unique_id: helfer_haus_ohne_wallbox
+        unit_of_measurement: "W"
+        device_class: power
         state_class: measurement
-        icon: mdi:thermometer
-        state: "{{ states('sensor.solis_raw_wr_temperature') | float(0) }}"
-
+        icon: mdi:power
+        state: >
+          {% set haus = states('sensor.solis_raw_house_load') | float(0) %}
+          {% set wb = states('sensor.ebox_smart_power_active_import') | float(0) %}
+          
+          {{ (haus - (wb * 1000)) | round(0) }}
+        
 #       verfügbare PV Leistung (Überschuss)
 
       - name: "PV Leistung netto"
@@ -23,35 +27,28 @@ template:
           {% set dc = states('sensor.solis_raw_pv_dc_power') | float(0) %}
           {% set wr = states('sensor.wr_leistung_mit_glattung') | float(0) %}
           {% set haus = states('sensor.hausverbrauch') | float(0) %}
-          {% set wb = states('sensor.ebox_smart_power_active_import') | float(0) %}
-          {% set netto = (dc - wr - haus + (wb * 1000)) | float(0) %}
-          
-          {% if netto > 0 %}
-            {{ netto | round(1) }}
-          {% else %}
-            0
-          {% endif %}
+          {% set wb = (states('sensor.ebox_smart_power_active_import') | float(0)) * 1000 %}
+          {% set batt = states('sensor.solis_raw_batt_p') | float(0) %}
 
-#       verfügbarer PV Strom (Überschuss)
+          {# === Race Condition workaround -> check house and wallbox power === #}
+          {# === house includes wallbox so must always be higher === #}
           
-      - name: "PV Strom Überschuss"
-        unique_id: pv_current_available
-        unit_of_measurement: "A"
-        device_class: current
-        state_class: measurement
-        icon: mdi:solar-power
-        state: >
-          {% set ueberschuss = states('sensor.solis_pv_leistung_netto') | float(0) %}
-          {% set u_l1 = states('sensor.netzspannung_l1') | float(0) %}
-          {% set u_l2 = states('sensor.netzspannung_l2') | float(0) %}
-          {% set u_l3 = states('sensor.netzspannung_l3') | float(0) %}
-          {% set u_avg = ((u_l1 + u_l2 + u_l3) / 3) | float(230) %}
+          {# === both sensors reasonable for charging load === #}
+          {% if haus > wb and wb > 1000 %}
+            {% set netto = (dc - wr - (haus - wb)) | float(0) %}
 
-          {% if u_avg > 0 %}
-            {{ (ueberschuss / (3 * u_avg)) | round(1) }}
+          {# === Standard condition: wallbox is switched off === #}
+          {% elif wb < 1000 %}
+            {% set netto = (dc - wr - haus) | float(0) %}
+
+          {# === For all other cases -> house and wallbox load ignored === #}
           {% else %}
-            0
+            {% set netto = (dc - wr) | float(0) %}
+
           {% endif %}
+          
+          {# === allow negative PV surplus to keep sensor alive === #}
+          {{ netto | round(1) }}
 
 #       Errechnete Wechselrichter Leistung
 
@@ -69,7 +66,7 @@ template:
           {% set haus = states('sensor.solis_netzleistung_aktuell') | float(0) %}
 
           {# 2. Der Durchsatz (x): Wie viel Energie bewegt sich insgesamt? #}
-          {% set x = [dc, ac, (batt | abs), haus] | max %}
+          {% set x = [dc, ac, (batt | abs), (haus | abs)] | max %}
 
           {# 3. Der aktuelle Fehlerwert: Was wollen wir prüfen? #}
           {% set current_val = ((dc + batt) - ac) | abs %}
@@ -97,39 +94,112 @@ template:
         state_class: measurement
         icon: mdi:percent-outline
         state: >
-          {% set dc = states('sensor.solis_raw_pv_dc_power') | float(0) %}
-          {% set ac = states('sensor.solis_raw_pv_ac_power') | float(0) %}
-          {% set batt = states('sensor.solis_raw_batt_p') | float(0) %}
-          {% set haus = states('sensor.solis_netzleistung_aktuell') | float(0) %}
+          {% set dc = states('sensor.dc_leistung_mit_glattung') | float(0) %}
+          {% set batt = states('sensor.batterie_leistung_gefiltert') | float(0) %}
+          {% set ac = states('sensor.ac_leistung_mit_glattung') | float(0) %}
           {% set wr = states('sensor.wr_leistung_mit_glattung') | float(0) %}
-          {% set x = [dc, ac, (batt | abs), haus] | max %}
 
-          {% if x > 50 %}
+          {# exclude charging battery (PV -> Battery conversion) #}
+
+          {% if batt <= 0 and dc > 0 %}
+            {% set wirkungsgrad = ((1 - (wr / dc)) * 100) %}
+          {% elif batt > 0 %}
             {% set wirkungsgrad = ((1 - (wr / (dc + batt))) * 100) %}
           {% else %}
-            0
+            {% set wirkungsgrad = 0 %}
           {% endif %}
-
-          {% if 0 <= wirkungsgrad <= 100 %}
-            {{ wirkungsgrad | round(1) }}
-          {% else %}
-            0
-          {% endif %}
+          
+          {# only allow efficiency values between 0 and 100% #}
+          
+          {{ [[0, wirkungsgrad] | max, 100] | min | round(2) }}
 
 sensor:
 
-#   Wechselrichter Leistung - Glättung durch Mittelwerte
+    # --- DC LEISTUNG (PV) ---
+  - platform: statistics
+    name: "DC Leistung gefiltert"
+    entity_id: sensor.solis_pv_leistung_dc_gesamt
+    state_characteristic: percentile
+    percentile: 50
+    sampling_size: 5
+  - platform: statistics
+    name: "DC Leistung mit Glättung"
+    entity_id: sensor.dc_leistung_gefiltert
+    state_characteristic: mean
+    sampling_size: 5
 
+  # --- AC LEISTUNG (WR) ---
+  - platform: statistics
+    name: "AC Leistung gefiltert"
+    entity_id: sensor.solis_wr_leistung_ac
+    state_characteristic: percentile
+    percentile: 50
+    sampling_size: 5
+  - platform: statistics
+    name: "AC Leistung mit Glättung"
+    entity_id: sensor.ac_leistung_gefiltert
+    state_characteristic: mean
+    sampling_size: 5
+
+#   Haus ohne Wallbox mit Glättung
+#   zuerst Ausreißer filtern, dann mittels Durchschnitt glätten
+
+  - platform: statistics
+    name: "Haus ohne Wallbox gefiltert"
+    unique_id: sensor.haus_ohne_wallbox_filtered
+    entity_id: sensor.haus_ohne_wallbox
+    state_characteristic: percentile
+    percentile: 60
+    sampling_size: 5
+    max_age:
+      minutes: 10
+  - platform: statistics
+    name: "Haus ohne Wallbox mit Glättung"
+    unique_id: sensor.haus_ohne_wallbox_smoothed
+    entity_id: sensor.haus_ohne_wallbox_gefiltert
+    state_characteristic: mean
+    sampling_size: 5
+    precision: 0
+
+#   PV Überschuss - Filter & Glättung durch Mittelwerte
+
+  - platform: statistics
+    name: "PV Überschuss gefiltert"
+    unique_id: pv_power_netto_filtered
+    entity_id: sensor.pv_leistung_netto
+    state_characteristic: percentile
+    percentile: 50
+    # Anzahl der zuletzt genutzten Daten für den Durchschnitt
+    sampling_size: 5
+    # maximale Lebensdauer von 30 Minuten,
+#    max_age:
+#      minutes: 30
+  - platform: statistics
+    name: "PV Überschuss mit Glättung"
+    unique_id: pv_power_netto_smoothed
+    entity_id: sensor.pv_uberschuss_gefiltert
+    state_characteristic: mean
+    sampling_size: 5
+    precision: 0
+
+#   Wechselrichter Leistung - Filter & Glättung durch Mittelwerte
+
+  - platform: statistics
+    name: "WR Leistung gefiltert"
+    unique_id: solis_inverter_power_filtered
+    entity_id: sensor.wr_leistung
+    state_characteristic: percentile
+    percentile: 40
+    sampling_size: 5
+    max_age:
+      minutes: 60
   - platform: statistics
     name: "WR Leistung mit Glättung"
     unique_id: solis_inverter_power_smoothed
-    entity_id: sensor.wr_leistung
+    entity_id: sensor.wr_leistung_gefiltert
     state_characteristic: mean
-    # Anzahl der zuletzt genutzten Daten für den Durchschnitt
-    sampling_size: 3
-    # maximale Lebensdauer von 30 Minuten,
-    max_age:
-      minutes: 30
+    sampling_size: 5
+    precision: 0
 
 #   Riemann-Summe - Helfer für Energieverbrauch
 

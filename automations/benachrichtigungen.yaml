@@ -1,3 +1,20 @@
+- id: '1778310903219'
+  alias: Benachrichtigung für "Auto lädt"
+  description: ''
+  triggers:
+  - type: turned_on
+    device_id: 25d8836c7b0640f7fd0dab2d8cd1847f
+    entity_id: 7d6eeff66307c17c6fbe632dac465a68
+    domain: switch
+    trigger: device
+  conditions: []
+  actions:
+  - action: notify.mobile_app_s23_tobias
+    metadata: {}
+    data:
+      message: eBox gestartet -> Auto lädt
+  mode: single
+
 - id: '1774094229660'
   alias: Benachrichtigung für "Waschmaschine fertig"
   description: ''
@@ -44,4 +61,28 @@
       metadata: {}
       data:
         message: Geschirrspüler ist fertig
+  mode: single
+
+- id: '1777471322143'
+  alias: Benachrichtigung für "Wäschetrockner fertig"
+  description: ''
+  triggers:
+  - trigger: numeric_state
+    entity_id:
+    - sensor.shelly_mg3_3_leistung
+    for:
+      hours: 0
+      minutes: 1
+      seconds: 0
+    below: 2
+  conditions: []
+  actions:
+  - action: notify.mobile_app_s23_tobias
+    metadata: {}
+    data:
+      message: Wäschetrockner ist fertig
+  - action: notify.mobile_app_s25_von_nicole
+    metadata: {}
+    data:
+      message: Wäschetrockner ist fertig
   mode: single

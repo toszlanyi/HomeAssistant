@@ -81,7 +81,7 @@ template:
         device_class: power
         state_class: measurement
         icon: mdi:flash
-        state: "{{ states('sensor.eastron_raw_p1') | float(0) | round(1) }}"
+        state: "{{ -(states('sensor.eastron_raw_p1') | float(0)) | round(1) }}"
         
       - name: "Netzleistung L2"
         unique_id: eastron_p2
@@ -89,7 +89,7 @@ template:
         device_class: power
         state_class: measurement
         icon: mdi:flash
-        state: "{{ states('sensor.eastron_raw_p2') | float(0) | round(1) }}"
+        state: "{{ -(states('sensor.eastron_raw_p2') | float(0)) | round(1) }}"
         
       - name: "Netzleistung L3"
         unique_id: eastron_p3
@@ -97,7 +97,7 @@ template:
         device_class: power
         state_class: measurement
         icon: mdi:flash
-        state: "{{ states('sensor.eastron_raw_p3') | float(0) | round(1) }}"
+        state: "{{ -(states('sensor.eastron_raw_p3') | float(0)) | round(1) }}"
         
       - name: "Netzleistung Gesamt"
         unique_id: eastron_p_total

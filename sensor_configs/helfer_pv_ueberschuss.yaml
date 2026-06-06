@@ -1,6 +1,35 @@
 template:
   - sensor:
 
+#.      Durchschnitt der Spannungen L1, L2 & L3
+
+      - name: "Netzspannung"
+        unique_id: netzspannung_durchschnitt
+        unit_of_measurement: "V"
+        device_class: voltage
+        state_class: measurement
+        icon: mdi:flash-triangle-outline
+        state: >
+          {% set u_l1 = states('sensor.netzspannung_l1') | float(230) %}
+          {% set u_l2 = states('sensor.netzspannung_l2') | float(230) %}
+          {% set u_l3 = states('sensor.netzspannung_l3') | float(230) %}
+          
+          {{ ((u_l1 + u_l2 + u_l3) / 3) | float(230) | round(2) }}
+
+#       verfügbarer PV Strom (Überschuss)
+
+      - name: "PV Strom Überschuss"
+        unique_id: pv_current_available
+        unit_of_measurement: "A"
+        device_class: current
+        state_class: measurement
+        icon: mdi:solar-power
+        state: >
+          {% set ueberschuss = states('sensor.pv_uberschuss_mit_glattung') | float(0) %}
+          {% set u_avg = states('sensor.netzspannung_mit_glattung') | float(230) %}
+
+          {{ (ueberschuss / (3 * u_avg)) | round(2) }}
+
 #       Ladeenergie ins Auto (zusätzliche Kapazität in %)
 
       - name: "Bis jetzt geladen (SOC)"
@@ -10,22 +39,90 @@ template:
         state_class: measurement
         state: >
           {% set energy = states('sensor.ebox_smart_energy_active_import_register') | float(0) %}
-          {% set capacity = 80 %}
-          {% if energy > 0 %}
-            {{ (energy / capacity * 100) | round(1) }}
+          {% set capacity = 77 %}
+          
+          {# constant base consumption for car control electronic in kWh #}
+          {% set base = 0.25 %}
+          
+          {# estimated AC -> DC and battery convertion efficiency in % #}
+          {% set conv = 93 %}
+          
+          {% if energy > base %}
+            {{ ((energy - base) / capacity * conv) | round(1) }}
           {% else %}
             0
           {% endif %}
         availability: >
           {{ is_number(states('sensor.ebox_smart_energy_active_import_register')) }}
 
+sensor:
+
+#   PV Strom Überschuss - Glättung durch Mittelwerte
+
+  - platform: statistics
+    name: "Netzspannung gefiltert"
+    unique_id: netzspannung_filtered
+    entity_id: sensor.netzspannung
+    state_characteristic: percentile
+    percentile: 50
+    sampling_size: 5
+
+  - platform: statistics
+    name: "Netzspannung mit Glättung"
+    unique_id: netzspannung_smoothed
+    entity_id: sensor.netzspannung_gefiltert
+    state_characteristic: mean
+    sampling_size: 5
+    
+  - platform: statistics
+    name: "PV Strom Überschuss gefiltert"
+    unique_id: pv_current_availabe_filtered
+    entity_id: sensor.pv_strom_uberschuss
+    state_characteristic: percentile
+    percentile: 50
+    sampling_size: 5
+  
+  - platform: statistics
+    name: "PV Strom Überschuss mit Glättung"
+    unique_id: pv_current_available_smoothed
+    entity_id: sensor.pv_strom_uberschuss_gefiltert
+    state_characteristic: mean
+    sampling_size: 3
+
+input_number:
+  ladegrenze:
+    name: Ladegrenze
+    unit_of_measurement: "%"
+    icon: mdi:battery-charging-70
+    initial: 30
+    min: 0
+    max: 100
+    step: 1
+    mode: slider
+
+# Helfer für die Logbuch Einträge in der PV Überschussladen Automation
+
+input_button:
+  pv_uberschuss_log:
+    name: "PV Überschuss Log"
+    icon: mdi:format-list-bulleted-type
+
+# Helfer für die Rundung des Ladestroms in der PV Überschussladen Automation
+
+input_boolean:
+  pv_runden_aufrunden:
+    name: PV Überschuss – Rundungsmodus (on=ceil, off=floor)
+    initial: false
+
 timer:
 
-# Timer, bis Charge Control ausschaltet
+# Timer für die "PV Überschussladen" Automation
+# !!! KEINE VOLLEN MINUTEN SETZEN !!!
+# um race condition mit Hauptsteuerung zu vermeiden
 
   ebox_sleep_protection:
     name: "eBox Sleep-Schutz Timer"
-    duration: "00:05:00"
+    duration: "00:05:30"
     icon: mdi:timer-outline
 
 counter:
