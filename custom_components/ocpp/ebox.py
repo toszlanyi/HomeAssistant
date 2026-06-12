@@ -1,6 +1,6 @@
 """
 eBox Smart - OCPP 1.6 charge point override.
-Version v2.0.1
+Version v2.0.2
 
 Activation - change THIS import line in upstream ocpp api.py
 ------------------------------------------------------------
@@ -23,7 +23,9 @@ and ensures longevity and hardware durability:
                         the UI slider value once Charging is confirmed.
     stop_transaction  - soft-stop: 0 A profile + TriggerMessage(MeterValues)
                         + Current.Import poll; max 15 s total before
-                        RemoteStopTransaction regardless.
+                        RemoteStopTransaction regardless. Both sensor values
+                        of current_offered & power_offered are zeroed and
+                        Profile slots cleared.
 
 All other methods (reset, unlock, on_boot_notification, on_meter_values, ...)
 are inherited unchanged from ocppv16.ChargePoint.
@@ -97,7 +99,7 @@ class ChargePoint(_ChargePointV16):
         return 6.0
 
     async def _apply_target_after_start(self, connector_id: int) -> None:
-        """Background task: wait for Charging + active transaction, then apply UI slider value.
+        """Background task: wait for Charging + active transaction, then apply slider.
 
         After RemoteStartTransaction is accepted, two asynchronous events still
         need to happen before the real target current can be applied:
@@ -539,17 +541,36 @@ class ChargePoint(_ChargePointV16):
                 tx_id, cid,
             )
             # The inherited on_stop_transaction zeroes current/power import but
-            # NOT current_offered / power_offered, so those two sensors keep
-            # their last value after the contactor opens (cosmetic, but
-            # confusing).  Zero them explicitly here so the UI reflects the
-            # real state (contactor open, nothing offered).
-            for meas in (
-                Measurand.current_offered.value,
-                Measurand.power_offered.value,
-            ):
-                key = (cid, meas)
-                if key in self._metrics:
-                    self._metrics[key].value = 0
+            # NOT current_offered / power_offered.  Those sensors need to be
+            # zeroed AFTER on_stop_transaction has completed, because:
+            #   (a) the eBox sends StopTransaction.req (with transactionData
+            #       containing the last Current.Offered) AFTER we receive the
+            #       RemoteStopTransaction.conf here, and
+            #   (b) on_stop_transaction overwrites _metrics from that data and
+            #       then calls update() - restoring the non-zero value.
+            # A deferred task runs 5 s later, safely after on_stop_transaction,
+            # zeros the offered metrics and triggers an explicit sensor update.
+            _cid = cid  # capture for closure
+
+            async def _zero_offered_deferred() -> None:
+                await asyncio.sleep(5)
+                _LOGGER.debug(
+                    "eBox: stop_transaction zeroing offered sensors "
+                    "(connector=%d)",
+                    _cid,
+                )
+                for _meas in (
+                    Measurand.current_offered.value,
+                    Measurand.power_offered.value,
+                ):
+                    _key = (_cid, _meas)
+                    if _key in self._metrics:
+                        self._metrics[_key].value = 0
+                self.hass.async_create_task(
+                    self.update(self.settings.cpid)
+                )
+
+            self.hass.async_create_task(_zero_offered_deferred())
             # Clear both profile slots so neither a residual TxProfile nor a
             # stale TxDefaultProfile carries over into the next session.
             _LOGGER.debug(

@@ -1,8 +1,8 @@
 import sys
-from datetime import datetime as _dt
+import time
 
 # ============================================================================
-# Reloads changes in solis_driver.py when the pyscript integration is reloaded.
+# Reloads changes in solis_driver.py when pyscript integration is reloaded.
 # ============================================================================
 
 MODULE_PATH = "/config/pyscript_modules"
@@ -17,11 +17,7 @@ importlib.reload(solis_driver)
 # STATE
 # ============================================================================
 
-_is_running           = False   # guard against overlapping cycles
-_online_since         = None    # datetime when connection last became stable
-_consecutive_failures = 0       # resets online_since only after this many failures
-OFFLINE_THRESHOLD     = 5       # lost data points before marking truly offline
-                                # stays online if nightly reconnect drops < 5 polls
+_is_running = False   # guard against overlapping cycles
 
 
 # ============================================================================
@@ -54,13 +50,9 @@ def task_solis_all():
 
     Fires on the fixed grid :00/:15/:30/:45 and queries the inverter once.
     If the S2-WL-ST is busy (e.g. during cloud upload) the query times out,
-    that single data point is skipped, and the next grid tick retries.
-
-    Phantom correction (solis_phantom.py) is temporarily disabled.
-    CHUNK_D (per-phase meter, 33257-33263) is still read but ignored here.
-    Re-enable by importing solis_phantom and adding the is_phantom() calls.
+    that single data point is skipped, and the next grid tick tries again.
     """
-    global _is_running, _online_since, _consecutive_failures
+    global _is_running
 
     if _is_running:
         log.warning(f"S2: Solis polling noch aktiv")
@@ -69,12 +61,11 @@ def task_solis_all():
     _is_running = True
 
     try:
-        a, b, c, d = task.executor(solis_driver.query_solis)
+        a, b, c = task.executor(solis_driver.query_solis)
         log.debug(f"S2: Datensatz erhalten")
 
         # --- Temperatures ---
-        state.set("sensor.solis_raw_wr_temperature",   value=round(decode_s16(b[14]) * 0.1, 1))   # 33093
-        state.set("sensor.solis_raw_batt_temperature", value=round(decode_s16(b[18]) * 0.1, 1))   # 33097
+        state.set("sensor.solis_raw_wr_temperature",   value=round(decode_s16(b[14]) * 0.1, 1))
 
         # --- PV yield ---
         state.set("sensor.solis_raw_pv_total_yield",  value=decode_u32(a[0], a[1]))
@@ -93,7 +84,7 @@ def task_solis_all():
         state.set("sensor.solis_raw_pv_ac_power", value=round(decode_s32(b[0], b[1]), 1))
 
         # --- Battery ---
-        # v_final and i_final kept (used twice: own sensor + batt_p).
+        # v_final and i_final are kept (used twice: own sensor + p_batt).
         # i_final carries the charge/discharge sign.
         v_final = round(decode_u16(c[0]) * 0.1, 1)
         i_final = round(decode_u16(c[1]) * 0.1 * (1 if decode_u16(c[2]) == 1 else -1), 2)
@@ -109,7 +100,6 @@ def task_solis_all():
         state.set("sensor.solis_raw_batt_today_discharge", value=round(decode_u16(c[34]) * 0.1, 1))
 
         # --- Grid & house load ---
-        # sign: + = Netzbezug (import), - = Einspeisung (export)
         state.set("sensor.solis_raw_house_load",  value=decode_u16(c[14]))
         state.set("sensor.solis_raw_grid_power",  value=decode_s32(c[18], c[19]))
 
@@ -122,26 +112,13 @@ def task_solis_all():
         state.set("sensor.solis_raw_house_today", value=round(decode_u16(c[46]) * 0.1, 1))
 
         # --- Connection status ---
-        _consecutive_failures = 0
-        if _online_since is None:
-            _online_since = _dt.now()
-        duration  = _dt.now() - _online_since
-        total_min = int(duration.total_seconds() // 60)
-        hours, minutes = divmod(total_min, 60)
         state.set("sensor.solis_connection_status",
                   value="online",
-                  attributes={
-                      'online_since':    _online_since.strftime('%d.%m. %H:%M'),
-                      'online_duration': f"{hours}h {minutes:02d}m",
-                  })
+                  attributes={'last_success': time.strftime('%H:%M:%S')})
 
     except (ConnectionRefusedError, ConnectionError, ValueError, TimeoutError, OSError) as e:
         # S2 busy or unreachable — skip this data point, next grid tick retries
         log.warning(f"S2: Datenpunkt entfallen ({e})")
-        _consecutive_failures += 1
-        if _consecutive_failures >= OFFLINE_THRESHOLD:
-            _online_since = None
-            state.set("sensor.solis_connection_status", value="offline")
 
     except Exception as e:
         log.error(f"S2: Unerwarteter Fehler: {e}")
