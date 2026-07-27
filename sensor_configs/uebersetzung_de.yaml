@@ -11,19 +11,25 @@ template:
         state: >
           {% set quelle = 'sensor.ebox_smart_status_connector' %}
           {% set s = states(quelle) | lower %}
-          {% set m = {
-            'available': 'Verfügbar',
-            'preparing': 'Vorbereitung (Ladekabel steckt)',
-            'charging': 'Lädt',
-            'suspendedev': 'Pausiert (Fahrzeug)',
-            'suspendedevse': 'Pausiert (Ladestation)',
-            'finishing': 'Fertig geladen (Ladekabel steckt noch)',
-            'reserved': 'Reserviert',
-            'unavailable': 'Nicht verfügbar',
-            'faulted': 'Fehler',
-            'occupied': 'Belegt'
-          } %}
-          {{ m.get(s, states(quelle)) }}
+          {% if s == 'charging' %}
+            {% set mins = states('sensor.ebox_smart_time_session') | int(0) %}
+            {% set h = (mins // 60) %}
+            {% set m = (mins % 60) %}
+            Lädt (seit {% if h > 0 %}{{ '%02d'|format(h) }}h {% endif %}{{ '%02d'|format(m) }}min)
+          {% else %}
+            {% set m = {
+              'available': 'Verfügbar',
+              'preparing': 'Vorbereitung (Kabel steckt)',
+              'suspendedev': 'Pausiert (Fahrzeug)',
+              'suspendedevse': 'Pausiert (Ladestation)',
+              'finishing': 'Fertig (Ladekabel steckt)',
+              'reserved': 'Reserviert',
+              'unavailable': 'Nicht verfügbar',
+              'faulted': 'Fehler',
+              'occupied': 'Belegt'
+            } %}
+            {{ m.get(s, states(quelle)) }}
+          {% endif %}
         availability: >
           {{ states('sensor.ebox_smart_status_connector') not in ['unknown', 'unavailable'] }}
         attributes:

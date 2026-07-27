@@ -2,13 +2,13 @@
 # Loads default set of integrations. Do not remove.
 default_config:
 
-# Load frontend themes from the themes folder
-frontend:
-  themes: !include_dir_merge_named themes
-
-automation: !include_dir_merge_list automations/
 script: !include scripts.yaml
 scene: !include scenes.yaml
+
+automation: !include_dir_merge_list automations/
+
+frontend:
+  themes: !include_dir_merge_named themes
 
 homeassistant:
   packages: !include_dir_named sensor_configs # (für separate YAML Dateien)
@@ -17,7 +17,6 @@ command_line:
   - sensor:
 
 #     Größe der Datenbank Datei
-
       name: "HA Datenbank Groesse"
       # Der Pfad zur SQLite Datei im Standard-Config-Ordner
       command: "du -m /config/home-assistant_v2.db | cut -f1"
@@ -30,35 +29,20 @@ command_line:
 recorder:
   commit_interval: 60 # nur alle x Sekunden in Datenbank schreiben
   purge_keep_days: 10  # alte Daten löschen
-#  include:
-#    entity_globs:
-#      - sensor.*
-#    entities:
-#      - sensor.
-#  exclude:
-#    entity_globs:
-#      - sensor.*
+  exclude:
+    entity_globs:
+      # --- Eastron: Roh-Quellschicht vom Pyscript (Werte liegen in den Templates) ---
+      - sensor.eastron_raw_*
+      - sensor.eastron_10min_*
+      # --- Solis: Roh-Quellschicht vom Pyscript (Werte liegen in den Templates) ---
+      - sensor.solis_raw_*
+      # --- Filterketten: Median/Percentile-Zwischenstufen nicht in DB schreiben.
+      #     Die _mit_glattung-Mittelwerte bleiben aufgezeichnet. ---
+      - sensor.*_gefiltert
 
-# nur krasse Sachen loggen
-#logger:
-#  default: warning
-#  logs:
-    # Unterdrückt die API-Verbindungsfehler (172.30.32.2)
-#    homeassistant.components.hassio: error
-#    homeassistant.components.hassio.handler: error
-
-    # Unterdrückt den Log-Spam des Supervisors selbst
-#   # (die veralteten Felder in den Add-on Metadaten)
-#    supervisor.resolution.checks.base: error
-#    supervisor.resolution.check: error
-#    supervisor.resolution.evaluate: error
-
-    # Modbus-Einstellungen
-#    homeassistant.components.modbus: warning
-#    pymodbus.logging: warning
-    
-    # InfluxDB nur Errors zeigen
-#    homeassistant.components.influxdb: error
-    
-    # DNS logger (Namen für Geräte finden)
-#    homeassistant.components.dns: error
+# Log Level
+logger:
+  default: warning
+  logs:
+    custom_components.pyscript: info
+    custom_components.ocpp: info

@@ -1,6 +1,6 @@
 """
 eBox Smart - OCPP 1.6 charge point override.
-Version v2.0.2
+Version v2.1.1
 
 Activation - change THIS import line in upstream ocpp api.py
 ------------------------------------------------------------
@@ -22,13 +22,26 @@ and ensures longevity and hardware durability:
                         closes; then a non-blocking background task applies
                         the UI slider value once Charging is confirmed.
     stop_transaction  - soft-stop: 0 A profile + TriggerMessage(MeterValues)
-                        + Current.Import poll; max 15 s total before
+                        + Current.Import poll; up to ~22 s total before
                         RemoteStopTransaction regardless. Both sensor values
-                        of current_offered & power_offered are zeroed and
-                        Profile slots cleared.
+                        of current_offered & power_offered are zeroed and the
+                        profile slot is cleared.
 
 All other methods (reset, unlock, on_boot_notification, on_meter_values, ...)
 are inherited unchanged from ocppv16.ChargePoint.
+
+Strategy - Connector
+--------------------
+Per the Compleo OCPP 1.6J integration handbook the eBox reports
+NumberOfConnectors = 1: it is a single-connector charge point (the eBox smart S
+used in development included).  Every override therefore targets connector 1
+regardless of the connector_id api.py passes (None, 0 or 1); no multi-connector
+bookkeeping is needed.
+
+In a master/slave load-management group each physical eBox keeps its own OCPP
+connection (own ChargeBoxID) and still presents only connector 1 - the power
+sharing happens over Modbus, invisibly to OCPP - so downstream boxes are never
+addressed as connector 2/3 here; they appear as separate charge points.
 
 Strategy - Profile ID
 ---------------------
@@ -41,8 +54,17 @@ same-purpose profile arrives.  This caused current changes to be silently
 ignored on the first TxDefault->Tx transition.
 
 Therefore each purpose uses its own ID range:
-    TxDefaultProfile -> 2000 + connector_id   (session boundaries: 6 A / 0 A)
-    TxProfile        -> 3000 + connector_id   (live in-session control)
+    TxDefaultProfile -> 2000 + connector_id   (no active session: 6 A soft-start
+                                               set before the transaction begins)
+    TxProfile        -> 3000 + connector_id   (active session: live current
+                                               control AND the 0 A soft-stop,
+                                               which still runs while the
+                                               transaction is open)
+
+Profile selection is driven purely by whether an active transactionId exists,
+not by the requested current.  In particular the 0 A soft-stop in
+stop_transaction runs while the transaction is still open, so it uses the
+TxProfile slot, not the TxDefaultProfile.
 
 TxProfile for live current control
 --------------------------------------
@@ -56,7 +78,9 @@ intentionally omitted: the eBox firmware reports SMART and supports it.
 Backward-compatibility note
 ----------------------------
 api.py passes keyword arguments to set_charge_rate that this override does not
-use (limit_watts, profile).  Both are accepted via **kwargs and ignored.
+use (limit_watts, profile).  Both are accepted via **kwargs and ignored.  Watt
+values would be rejected by the eBox anyway: per the integration handbook the
+ChargingScheduleAllowedChargingRateUnit is "A" only.
 """
 
 import asyncio
@@ -107,12 +131,13 @@ class ChargePoint(_ChargePointV16):
              the transactionId in self._active_tx (required for TxProfile).
           2. The eBox sends StatusNotification "Charging" -> contactor closed.
 
-        Once both hold, the 6 A soft-start TxDefaultProfile is cleared and the
-        UI slider value is applied as a TxProfile.  Running in the background
-        means the CC switch / automation does not block during the IEC 61851
-        handshake.
+        Once both hold, the UI slider value is applied as a TxProfile
+        (3000 + connector_id), superseding the 6 A soft-start TxDefaultProfile.
+        If the slider is already at 6 A the soft-start level is kept and no
+        TxProfile is sent.  Running in the background means the CC switch /
+        automation does not block during the IEC 61851 handshake.
         """
-        POLL_TIMEOUT = 30    # seconds
+        POLL_TIMEOUT = 45    # seconds
         POLL_INTERVAL = 0.5  # seconds
 
         charging_seen = False
@@ -188,9 +213,9 @@ class ChargePoint(_ChargePointV16):
         conn_id: int = 1,
         **kwargs,
     ) -> bool:
-        """Set the charge rate on the given connector.
+        """Set the charge rate on the (single) eBox connector.
 
-        Profile strategy:
+        Profile strategy (selected purely by whether a session is active):
           - Active session present  -> TxProfile bound to transactionId,
             chargingProfileId = 3000 + connector_id.
           - No active session       -> TxDefaultProfile,
@@ -203,6 +228,9 @@ class ChargePoint(_ChargePointV16):
         Current limits:
           - 0 A is passed through unchanged (soft-stop signal).
           - All other values are clamped to the eBox range of 6-16 A.
+
+        conn_id is forced to 1: the eBox is single-connector, so any value
+        api.py passes (None, 0 or a stray 2) maps to connector 1.
 
         The **kwargs absorb legacy keyword arguments forwarded by api.py
         (limit_watts, profile) that are not applicable to the eBox.
@@ -219,7 +247,9 @@ class ChargePoint(_ChargePointV16):
         if clamped != amps:
             _LOGGER.debug("eBox: set_charge_rate clamped %.1f A -> %.1f A", amps, clamped)
 
-        target_cid = int(conn_id) if conn_id and int(conn_id) > 0 else 1
+        # eBox is single-connector (NumberOfConnectors = 1); every profile
+        # targets connector 1 whatever conn_id api.py passes.
+        target_cid = 1
 
         try:
             active_tx_id = int(self._active_tx.get(target_cid, 0) or 0)
@@ -249,6 +279,10 @@ class ChargePoint(_ChargePointV16):
             "chargingRateUnit": "A",
             "chargingSchedulePeriod": [{"startPeriod": 0, "limit": clamped}],
         }
+        # stackLevel only disambiguates profiles of the SAME purpose.  With
+        # MaxChargingProfilesInstalled = 1 only one profile is ever stored, and
+        # TxProfile already outranks TxDefaultProfile by purpose precedence, so
+        # a fixed stackLevel = 1 is sufficient (handbook allows 0-32).
         profile: dict = {
             "chargingProfileId": profile_id,
             "stackLevel": 1,
@@ -278,7 +312,7 @@ class ChargePoint(_ChargePointV16):
         except Exception as ex:
             _LOGGER.warning("eBox: set_charge_rate SetChargingProfile failed: %s", ex)
             await self.notify_ha(
-                "Warning: Set charging profile failed with response Exception"
+                f"Warning: Set charging profile failed: {ex}"
             )
         return False
 
@@ -292,23 +326,29 @@ class ChargePoint(_ChargePointV16):
         Sequence:
           1. Set 6 A TxDefaultProfile so the contactor closes under a
              controlled load rather than full available current.
-          2. Retry up to MAX_RETRIES times (RETRY_DELAY s apart); if still
-             not accepted, poll for up to CONFIRM_TIMEOUT more seconds.
+          2. Retry up to MAX_RETRIES times (RETRY_DELAY s apart); if still not
+             accepted, keep re-sending the 6 A profile every POLL_INTERVAL for
+             up to CONFIRM_TIMEOUT more seconds.
           3. Send RemoteStartTransaction; return immediately on accept.
           4. A background task (_apply_target_after_start) waits for the
              contactor to close and then applies the UI slider value.
 
         Current.Import is intentionally not checked here - the contactor is
         still open so no current flows before the transaction starts.
+
+        connector_id is normalized to 1: the eBox is single-connector.
         """
+        # eBox is single-connector: always operate on connector 1.
+        connector_id = 1
+
         _LOGGER.info(
             "eBox: start_transaction requesting session on connector %d", connector_id
         )
 
         MAX_RETRIES = 3
         RETRY_DELAY = 2      # seconds between profile-set attempts
-        CONFIRM_TIMEOUT = 9  # seconds to poll for profile ACK after final attempt
-        POLL_INTERVAL = 0.5  # seconds between ACK polls
+        CONFIRM_TIMEOUT = 9  # seconds to keep re-sending the profile after final retry
+        POLL_INTERVAL = 0.5  # seconds between re-send attempts
 
         _LOGGER.debug(
             "eBox: start_transaction setting 6 A soft-start profile (connector=%d)",
@@ -335,7 +375,7 @@ class ChargePoint(_ChargePointV16):
         if not profile_accepted:
             _LOGGER.debug(
                 "eBox: start_transaction profile not accepted after %d attempts "
-                "- waiting up to %d s",
+                "- re-sending for up to %d s",
                 MAX_RETRIES, CONFIRM_TIMEOUT,
             )
             for _ in range(int(CONFIRM_TIMEOUT / POLL_INTERVAL)):
@@ -350,8 +390,9 @@ class ChargePoint(_ChargePointV16):
 
         if not profile_accepted:
             _LOGGER.warning(
-                "eBox: start_transaction 6 A profile not confirmed within 15 s "
-                "- sending RemoteStartTransaction anyway"
+                "eBox: start_transaction 6 A profile not confirmed within %d s "
+                "- sending RemoteStartTransaction anyway",
+                RETRY_DELAY * (MAX_RETRIES - 1) + CONFIRM_TIMEOUT,
             )
 
         _LOGGER.debug(
@@ -391,42 +432,35 @@ class ChargePoint(_ChargePointV16):
     async def stop_transaction(self, connector_id: int | None = None):
         """Request remote stop of current transaction.
 
+        The eBox is single-connector, so every OCPP call here targets
+        connector 1 regardless of the connector_id passed in (None, 0 or 1).
+
         Sequence:
-          1. Resolve the active transactionId.
+          1. Resolve the active transactionId (connector 1, with a fallback
+             to active_transaction_id).
           2. Set 0 A TxProfile (soft-stop): CP-Pilot duty drops to 0 %,
-             IEC 61851 State C->B, contactor opens under zero load.
+             IEC 61851 State C->B, contactor opens under zero load.  The
+             transaction is still open at this point, so set_charge_rate
+             selects the TxProfile slot (3000 + 1), not the TxDefaultProfile.
           3. Send TriggerMessage(MeterValues) for an immediate current reading.
           4. Poll Current.Import until < 0.5 A or CONFIRM_TIMEOUT expires.
           5. Send RemoteStopTransaction to end the OCPP session.
-          6. Clear both profiles so the next session starts clean.
+          6. Zero the offered sensors (deferred) and clear the connector's
+             profiles so the next session starts clean.
         """
-        tx_id = 0
-        if connector_id is not None:
-            try:
-                tx_id = int(self._active_tx.get(int(connector_id), 0) or 0)
-            except Exception:
-                tx_id = 0
-
-            if tx_id == 0:
-                try:
-                    n = int(getattr(self, "num_connectors", 0) or 0)
-                except Exception:
-                    n = 0
-                if n == 1 and int(connector_id) in (0, 1):
-                    tx_id = int(self.active_transaction_id or 0)
-        else:
-            tx_id = int(self.active_transaction_id or 0)
-            if tx_id == 0:
-                tx_id = next((int(v) for v in self._active_tx.values() if v), 0)
+        # eBox is single-connector: always operate on connector 1, whatever
+        # connector_id api.py passes (None, 0 or 1).
+        cid = 1
+        try:
+            tx_id = int(
+                self._active_tx.get(cid, 0) or self.active_transaction_id or 0
+            )
+        except (ValueError, TypeError):
+            tx_id = 0
 
         if tx_id == 0:
             _LOGGER.debug("eBox: stop_transaction no active transaction - nothing to do")
             return True
-
-        try:
-            cid = max(1, int(connector_id)) if connector_id is not None else 1
-        except (ValueError, TypeError):
-            cid = 1
 
         _LOGGER.info(
             "eBox: stop_transaction stopping transaction %d on connector %d",
@@ -435,8 +469,8 @@ class ChargePoint(_ChargePointV16):
 
         MAX_RETRIES = 3
         RETRY_DELAY = 2      # seconds between profile-set attempts
-        CONFIRM_TIMEOUT = 9  # seconds to poll for Current.Import < 0.5 A
-        POLL_INTERVAL = 0.5  # seconds between current polls
+        CONFIRM_TIMEOUT = 18 # seconds to poll for Current.Import < 0.5 A
+        POLL_INTERVAL = 1    # seconds between current polls
 
         _LOGGER.debug(
             "eBox: stop_transaction setting 0 A soft-stop profile (connector=%d)", cid
@@ -571,8 +605,10 @@ class ChargePoint(_ChargePointV16):
                 )
 
             self.hass.async_create_task(_zero_offered_deferred())
-            # Clear both profile slots so neither a residual TxProfile nor a
-            # stale TxDefaultProfile carries over into the next session.
+            # Clear the connector's profiles so neither a residual TxProfile
+            # (3000+) nor a stale TxDefaultProfile (2000+) carries over into the
+            # next session.  clear_profile() is called without a profileId,
+            # which per OCPP clears every profile on the connector.
             _LOGGER.debug(
                 "eBox: stop_transaction clearing residual profiles (connector=%d)",
                 cid,

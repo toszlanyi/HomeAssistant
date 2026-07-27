@@ -1,28 +1,3 @@
-# ============================================================================
-# BATTERIE LEISTUNG — Filterkette mit Bypass
-#
-# Kette:
-#   sensor.solis_raw_batt_p                        (Rohwert aus pyscript)
-#     -> sensor.batterie_leistung_gefiltert        (Ausreißer raus: percentile 50)
-#         -> sensor.batterie_leistung              (final, mit 0-Bypass)
-#
-# Der finale Template-Sensor referenziert Roh- UND Filterwert. Geht der
-# Rohwert unter 10 (Batterie idle), feuert der Rohsensor ein State-Change,
-# das Template wertet sofort neu aus und gibt 0 aus — am haengenden Filter
-# vorbei. Sonst wird der Filterwert ausgegeben.
-#
-# Alle anderen Sensoren bleiben ungefiltert.
-# ============================================================================
-
-sensor:
-  - platform: statistics
-    name: "Batterie Leistung gefiltert"
-    unique_id: batterie_leistung_gefiltert
-    entity_id: sensor.solis_raw_batt_p
-    state_characteristic: percentile
-    percentile: 50
-    sampling_size: 5
-
 template:
   - sensor:
 
@@ -32,13 +7,7 @@ template:
         device_class: power
         state_class: measurement
         icon: mdi:battery-charging-60
-        state: >
-          {% set raw = states('sensor.solis_raw_batt_p') | float(0) %}
-          {% if (raw | abs) < 5 %}
-            0
-          {% else %}
-            {{ states('sensor.batterie_leistung_gefiltert') | float(0) | round(0) }}
-          {% endif %}
+        state: "{{ states('sensor.solis_raw_batt_p') | float(0) }}"
 
       - name: "Batterie Spannung"
         unique_id: solis_batt_voltage
@@ -61,7 +30,6 @@ template:
         unit_of_measurement: "%"
         device_class: battery
         state_class: measurement
-#        icon: mdi:battery-medium
         state: "{{ states('sensor.solis_raw_batt_soc') | float(0) }}"
 
       - name: "Batterie SoH"

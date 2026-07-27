@@ -1,21 +1,6 @@
 template:
   - sensor:
 
-#.      Durchschnitt der Spannungen L1, L2 & L3
-
-      - name: "Netzspannung"
-        unique_id: netzspannung_durchschnitt
-        unit_of_measurement: "V"
-        device_class: voltage
-        state_class: measurement
-        icon: mdi:flash-triangle-outline
-        state: >
-          {% set u_l1 = states('sensor.netzspannung_l1') | float(230) %}
-          {% set u_l2 = states('sensor.netzspannung_l2') | float(230) %}
-          {% set u_l3 = states('sensor.netzspannung_l3') | float(230) %}
-          
-          {{ ((u_l1 + u_l2 + u_l3) / 3) | float(230) | round(2) }}
-
 #       verfügbarer PV Strom (Überschuss)
 
       - name: "PV Strom Überschuss"
@@ -25,69 +10,94 @@ template:
         state_class: measurement
         icon: mdi:solar-power
         state: >
-          {% set ueberschuss = states('sensor.pv_uberschuss_mit_glattung') | float(0) %}
-          {% set u_avg = states('sensor.netzspannung_mit_glattung') | float(230) %}
+          {% set ueberschuss = states('sensor.pv_leistung_netto') | float(0) %}
+          {% set u_l1 = states('sensor.netzspannung_l1_min') | float(230) %}
+          {% set u_l2 = states('sensor.netzspannung_l2_min') | float(230) %}
+          {% set u_l3 = states('sensor.netzspannung_l3_min') | float(230) %}
+          {% set u_sum = u_l1 + u_l2 + u_l3 %}
+          {% if u_sum > 0 %}
+            {{ (ueberschuss / u_sum) | round(2) }}
+          {% else %}
+            0
+          {% endif %}
 
-          {{ (ueberschuss / (3 * u_avg)) | round(2) }}
+#   Ladeenergie ins Auto (zusätzliche Kapazität in %)
 
-#       Ladeenergie ins Auto (zusätzliche Kapazität in %)
-
+  - trigger:
+      - platform: state
+        entity_id: sensor.ebox_smart_status_connector
+      - platform: state
+        entity_id: sensor.ebox_smart_energy_active_import_register
+      - platform: homeassistant
+        event: start
+      - platform: event
+        event_type: event_template_reloaded
+    sensor:
       - name: "Bis jetzt geladen (SOC)"
         unique_id: car_session_charge_percentage
         unit_of_measurement: "%"
         device_class: battery
         state_class: measurement
-        state: >
-          {% set energy = states('sensor.ebox_smart_energy_active_import_register') | float(0) %}
+        icon: mdi:battery-charging
+        availability: >-
+          {{ is_number(states('sensor.ebox_smart_energy_active_import_register')) }}
+        state: >-
+          {% set status = states('sensor.ebox_smart_status_connector') %}
+          {% set reg = states('sensor.ebox_smart_energy_active_import_register') | float(0) %}
+
           {% set capacity = 77 %}
-          
-          {# constant base consumption for car control electronic in kWh #}
-          {% set base = 0.25 %}
-          
-          {# estimated AC -> DC and battery convertion efficiency in % #}
-          {% set conv = 93 %}
-          
-          {% if energy > base %}
-            {{ ((energy - base) / capacity * conv) | round(1) }}
+          {% set base = 0.26 %}
+          {% set conv = 90 %}
+          {% set was_hold = this.attributes.get('hold', false) if this is defined else false %}
+
+          {% if status == 'Preparing' %}
+            {% set hold = true %}
+          {% elif reg < 0.2 %}
+            {% set hold = false %}
+          {% else %}
+            {% set hold = was_hold %}
+          {% endif %}
+          {% if hold %}
+            0
+          {% elif reg > base %}
+            {{ ((reg - base) / capacity * conv) | round(1) }}
           {% else %}
             0
           {% endif %}
-        availability: >
-          {{ is_number(states('sensor.ebox_smart_energy_active_import_register')) }}
+        attributes:
+          hold: >-
+            {% set was_hold = this.attributes.get('hold', false) if this is defined else false %}
+            {% set status = states('sensor.ebox_smart_status_connector') %}
+            {% set reg = states('sensor.ebox_smart_energy_active_import_register') | float(0) %}
+            {% if status == 'Preparing' %}
+              true
+            {% elif reg < 0.2 %}
+              false
+            {% else %}
+              {{ was_hold }}
+            {% endif %}
 
 sensor:
 
 #   PV Strom Überschuss - Glättung durch Mittelwerte
 
   - platform: statistics
-    name: "Netzspannung gefiltert"
-    unique_id: netzspannung_filtered
-    entity_id: sensor.netzspannung
-    state_characteristic: percentile
-    percentile: 50
-    sampling_size: 5
-
-  - platform: statistics
-    name: "Netzspannung mit Glättung"
-    unique_id: netzspannung_smoothed
-    entity_id: sensor.netzspannung_gefiltert
-    state_characteristic: mean
-    sampling_size: 5
-    
-  - platform: statistics
     name: "PV Strom Überschuss gefiltert"
     unique_id: pv_current_availabe_filtered
     entity_id: sensor.pv_strom_uberschuss
-    state_characteristic: percentile
-    percentile: 50
-    sampling_size: 5
+    state_characteristic: median
+    max_age:
+      seconds: 50
+    precision: 2
   
   - platform: statistics
     name: "PV Strom Überschuss mit Glättung"
     unique_id: pv_current_available_smoothed
     entity_id: sensor.pv_strom_uberschuss_gefiltert
     state_characteristic: mean
-    sampling_size: 3
+    max_age:
+      seconds: 30
+    precision: 1
 
 input_number:
   ladegrenze:
@@ -122,7 +132,7 @@ timer:
 
   ebox_sleep_protection:
     name: "eBox Sleep-Schutz Timer"
-    duration: "00:05:30"
+    duration: "00:04:30"
     icon: mdi:timer-outline
 
 counter:

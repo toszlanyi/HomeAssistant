@@ -10,7 +10,7 @@ template:
         state_class: measurement
         icon: mdi:power
         state: >
-          {% set haus = states('sensor.solis_raw_house_load') | float(0) %}
+          {% set haus = states('sensor.hausverbrauch') | float(0) %}
           {% set wb = states('sensor.ebox_smart_power_active_import') | float(0) %}
           
           {{ (haus - (wb * 1000)) | round(0) }}
@@ -24,11 +24,11 @@ template:
         state_class: measurement
         icon: mdi:solar-power
         state: >
-          {% set dc = states('sensor.solis_raw_pv_dc_power') | float(0) %}
+          {% set dc = states('sensor.solis_pv_leistung_dc_gesamt') | float(0) %}
           {% set wr = states('sensor.wr_leistung_mit_glattung') | float(0) %}
           {% set haus = states('sensor.hausverbrauch') | float(0) %}
           {% set wb = (states('sensor.ebox_smart_power_active_import') | float(0)) * 1000 %}
-          {% set batt = states('sensor.solis_raw_batt_p') | float(0) %}
+          {% set batt = states('sensor.batterie_leistung') | float(0) %}
 
           {# === Race Condition workaround -> check house and wallbox power === #}
           {# === house includes wallbox so must always be higher === #}
@@ -60,9 +60,9 @@ template:
         icon: mdi:solar-power
         state: >
           {# 1. Die Basis-Daten holen #}
-          {% set dc = states('sensor.solis_raw_pv_dc_power') | float(0) %}
-          {% set ac = states('sensor.solis_raw_pv_ac_power') | float(0) %}
-          {% set batt = states('sensor.solis_raw_batt_p') | float(0) %}
+          {% set dc = states('sensor.solis_pv_leistung_dc_gesamt') | float(0) %}
+          {% set ac = states('sensor.solis_wr_leistung_ac') | float(0) %}
+          {% set batt = states('sensor.batterie_leistung') | float(0) %}
           {% set haus = states('sensor.solis_netzleistung_aktuell') | float(0) %}
 
           {# 2. Der Durchsatz (x): Wie viel Energie bewegt sich insgesamt? #}
@@ -148,17 +148,19 @@ sensor:
     name: "Haus ohne Wallbox gefiltert"
     unique_id: sensor.haus_ohne_wallbox_filtered
     entity_id: sensor.haus_ohne_wallbox
-    state_characteristic: percentile
-    percentile: 60
-    sampling_size: 5
+    state_characteristic: median
+#    percentile: 50
+#    sampling_size: 60
     max_age:
-      minutes: 10
+      seconds: 50
   - platform: statistics
     name: "Haus ohne Wallbox mit Glättung"
     unique_id: sensor.haus_ohne_wallbox_smoothed
     entity_id: sensor.haus_ohne_wallbox_gefiltert
     state_characteristic: mean
-    sampling_size: 5
+#    sampling_size: 100
+    max_age:
+      seconds: 30
     precision: 0
 
 #   PV Überschuss - Filter & Glättung durch Mittelwerte
@@ -190,15 +192,17 @@ sensor:
     entity_id: sensor.wr_leistung
     state_characteristic: percentile
     percentile: 40
-    sampling_size: 5
+#    sampling_size: 5
     max_age:
-      minutes: 60
+      seconds: 65
   - platform: statistics
     name: "WR Leistung mit Glättung"
     unique_id: solis_inverter_power_smoothed
     entity_id: sensor.wr_leistung_gefiltert
     state_characteristic: mean
-    sampling_size: 5
+#    sampling_size: 5
+    max_age:
+      seconds: 90
     precision: 0
 
 #   Riemann-Summe - Helfer für Energieverbrauch

@@ -24,7 +24,7 @@
         - sensor.shelly_mg3_4_leistung
       for:
         hours: 0
-        minutes: 1
+        minutes: 2
         seconds: 0
       below: 2
   conditions: []
@@ -48,7 +48,7 @@
         - sensor.shelly_mg3_9_leistung
       for:
         hours: 0
-        minutes: 1
+        minutes: 2
         seconds: 0
       below: 2
   conditions: []
@@ -72,9 +72,9 @@
     - sensor.shelly_mg3_3_leistung
     for:
       hours: 0
-      minutes: 1
+      minutes: 2
       seconds: 0
-    below: 2
+    below: 3
   conditions: []
   actions:
   - action: notify.mobile_app_s23_tobias

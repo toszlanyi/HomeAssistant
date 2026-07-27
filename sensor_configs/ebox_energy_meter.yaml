@@ -1,37 +1,48 @@
 # =============================================================================
-# eBox Smart – Gesamt-Energiezaehler (Firmware 3.0.4+)
+# eBox Smart – Cumulative Energy Meter (Firmware 3.0.4+)
 # =============================================================================
-# Ablage:  config/sensor_configs/ebox_energy_meter.yaml
-# Eingebunden via:  homeassistant: packages: !include_dir_named sensor_configs
+# Location:  config/sensor_configs/ebox_energy_meter.yaml
+# Included via:  homeassistant: packages: !include_dir_named sensor_configs
 #
-# ERSETZT die bisherige pyscript-Loesung vollstaendig.
+# CONCEPT
+#   Total meter = anchor + register
 #
-# MIGRATION (Historie bleibt erhalten):
-#   - name + unique_id sind IDENTISCH zum alten Dashboard-Sensor
-#     ("eBox Energie kumuliert" / ebox_energy_cumulative), daher behaelt
-#     sensor.ebox_energie_kumuliert seine entity_id UND seine Historie.
-#   - Vor dem Neuladen entfernen:
-#       * pyscript-Datei  ebox_energy_meter.py
-#       * die beiden input_number  (ebox_cumulative_energy, ebox_register_offset)
-#       * die alten Template-Sensoren in dieser Datei (durch diese Version ersetzt)
-#   - Die raw-Sensoren (sensor.ebox_energy_cumulative_raw usw.) verschwinden
-#     mit pyscript; werden hier nicht mehr gebraucht (Wert wird selbst berechnet).
+#   'anchor'   – absolute meter reading at the last cable connect
+#                (the value when register was last reset to 0)
+#   'register' – energy delivered since that connect, accumulates across
+#                consecutive sessions as long as the cable stays plugged in,
+#                resets to 0 only on cable disconnect / reconnect
 #
-# KONZEPT
-#   Gesamtzaehler = anchor + register
-#   'anchor' = absoluter Zaehlerstand beim letzten Kabel-Connect (Stand, als
-#   register zuletzt 0 war). 'register' liefert den Zuwachs seit dem Connect –
-#   ueber beliebig viele Folge-Sessions hinweg.
+# ANCHOR RULES  (verified against real eBox meter readings)
 #
-# ANKER-REGELN (gegen echte eBox-Zaehlerstaende verifiziert: 0 Rueckspruenge,
-#               max. 4 Wh Abweichung, Endstand exakt = Web-Interface 872,16):
-#   (A) register < 0.2  -> Kabel frisch gesteckt / Zaehler genullt
-#                          -> anchor = start
-#   (B) session > 0.05  -> geparkt nach dem Laden
-#                          -> anchor = start + session - register
-#                          (Selbstheilung + Bootstrap; nur Backup, normal
-#                          laeuft alles ueber Regel A)
-#   sonst (laufende Session) -> anchor eingefroren
+#   (A) register < 0.2  ->  cable just connected / register reset
+#                           anchor = start
+#                           (start is already committed ~16-18 s before
+#                           register reaches 0; the 0.2 threshold safely
+#                           covers a 15 s OCPP sampling interval at 11kW)
+#
+#   (B) session > 0.05  ->  parked after charging
+#                           anchor = start + session - register
+#                           (self-healing / bootstrap: the absolute reading
+#                           is known exactly as start + session at this point;
+#                           acts as backup if rule A was missed, e.g. after
+#                           an HA restart mid-session)
+#
+#   otherwise           ->  active charging session, anchor unchanged
+#                           (frozen value carried forward via own attribute)
+#
+# NOTE ON 'this'
+#   'this' is not available in the variables block (HA limitation – variables
+#   are evaluated before the entity context is established). The anchor logic
+#   is therefore placed directly in the state and attributes templates where
+#   'this' is valid. reg / st / se are read once in variables and reused in
+#   both blocks to avoid redundant state lookups.
+#
+# TRIGGERS
+#   - register / session state change  ->  update during charging
+#   - homeassistant start              ->  restore after HA restart
+#   - event_template_reloaded          ->  restore immediately after a
+#                                          manual template reload in dev tools
 # =============================================================================
 
 template:
@@ -42,21 +53,13 @@ template:
           - sensor.ebox_smart_energy_session
       - platform: homeassistant
         event: start
+      - platform: event
+        event_type: event_template_reloaded
     variables:
       reg: "{{ states('sensor.ebox_smart_energy_active_import_register') | float(0) }}"
       st:  "{{ states('sensor.ebox_smart_energy_meter_start') | float(0) }}"
       se:  "{{ states('sensor.ebox_smart_energy_session') | float(0) }}"
-      prev_anchor: "{{ this.attributes.get('anchor', st + se - reg) | float(st + se - reg) }}"
-      new_anchor: >-
-        {% if reg < 0.2 %}
-          {{ st }}
-        {% elif se > 0.05 %}
-          {{ st + se - reg }}
-        {% else %}
-          {{ prev_anchor }}
-        {% endif %}
     sensor:
-      # WICHTIG: name + unique_id identisch zum alten Sensor -> Historie bleibt
       - name: "eBox Energie kumuliert"
         unique_id: ebox_energy_cumulative
         unit_of_measurement: "kWh"
@@ -65,10 +68,28 @@ template:
         icon: mdi:counter
         availability: >-
           {{ states('sensor.ebox_smart_energy_active_import_register')
-             not in ['unavailable','unknown','none', none]
+             not in ['unavailable', 'unknown', 'none', none]
              and states('sensor.ebox_smart_energy_meter_start')
-             not in ['unavailable','unknown','none', none] }}
-        state: "{{ (new_anchor | float(0) + reg) | round(3) }}"
+             not in ['unavailable', 'unknown', 'none', none] }}
+        state: >-
+          {% set prev = this.attributes.get('anchor', st + se - reg) | float(st + se - reg) %}
+          {% if reg < 0.2 %}
+            {% set anchor = st %}
+          {% elif se > 0.05 %}
+            {% set anchor = st + se - reg %}
+          {% else %}
+            {% set anchor = prev %}
+          {% endif %}
+          {{ (anchor + reg) | round(2, 'floor') }}
         attributes:
-          anchor: "{{ new_anchor | float(0) | round(3) }}"
+          anchor: >-
+            {% set prev = this.attributes.get('anchor', st + se - reg) | float(st + se - reg) %}
+            {% if reg < 0.2 %}
+              {% set anchor = st %}
+            {% elif se > 0.05 %}
+              {% set anchor = st + se - reg %}
+            {% else %}
+              {% set anchor = prev %}
+            {% endif %}
+            {{ anchor | round(3) }}
           last_updated: "{{ now().isoformat() }}"

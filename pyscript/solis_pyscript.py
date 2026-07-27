@@ -43,7 +43,7 @@ def decode_s32(high, low):
 # MAIN TASK
 # ============================================================================
 
-@time_trigger("period(0, 15)")
+@time_trigger("period(12, 15)")
 def task_solis_all():
     """
     MIND THE CONNECTION TIMEOUT IN SOLIS_DRIVER.PY WHEN CHANGING POLL INTERVAL
@@ -112,13 +112,11 @@ def task_solis_all():
         state.set("sensor.solis_raw_house_today", value=round(decode_u16(c[46]) * 0.1, 1))
 
         # --- Connection status ---
-        state.set("sensor.solis_connection_status",
-                  value="online",
-                  attributes={'last_success': time.strftime('%H:%M:%S')})
+        state.set("sensor.solis_connection_status", value="online")
 
     except (ConnectionRefusedError, ConnectionError, ValueError, TimeoutError, OSError) as e:
         # S2 busy or unreachable — skip this data point, next grid tick retries
-        log.warning(f"S2: Datenpunkt entfallen ({e})")
+        log.info(f"S2: Datenpunkt entfallen ({e})")
 
     except Exception as e:
         log.error(f"S2: Unerwarteter Fehler: {e}")
