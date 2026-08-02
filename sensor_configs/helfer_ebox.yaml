@@ -1,0 +1,210 @@
+# =============================================================================
+# eBox Smart – Cumulative Energy Meter (Firmware 3.0.4+)
+# =============================================================================
+# Location:  config/sensor_configs/ebox_energy_meter.yaml
+# Included via:  homeassistant: packages: !include_dir_named sensor_configs
+#
+# CONCEPT
+#   Total meter = anchor + register
+#
+#   'anchor'   – absolute meter reading at the last cable connect
+#                (the value when register was last reset to 0)
+#   'register' – energy delivered since that connect, accumulates across
+#                consecutive sessions as long as the cable stays plugged in,
+#                resets to 0 only when charging begins.
+#
+# ANCHOR RULES  (verified against real eBox meter readings)
+#
+#   (A) register < 0.2  ->  cable connected/ charging starts / register zeroed
+#                           anchor = start
+#                           (start is already committed ~16-18 s before
+#                           register reaches 0; the 0.2 threshold safely
+#                           covers a 15 s OCPP sampling interval at 11kW)
+#
+#   (B) session > 0.05  ->  parked after charging
+#                           anchor = start + session - register
+#                           (self-healing / bootstrap: the absolute reading
+#                           is known exactly as start + session at this point;
+#                           acts as backup if rule A was missed, e.g. after
+#                           an HA restart mid-session)
+#
+#   otherwise           ->  active charging session, anchor unchanged
+#                           (frozen value carried forward via own attribute)
+# =============================================================================
+
+template:
+  - trigger:
+      - platform: state
+        entity_id:
+          - sensor.ebox_smart_energy_active_import_register
+          - sensor.ebox_smart_energy_session
+      - platform: homeassistant
+        event: start
+      - platform: event
+        event_type: event_template_reloaded
+    variables:
+      reg: "{{ states('sensor.ebox_smart_energy_active_import_register') | float(0) }}"
+      st:  "{{ states('sensor.ebox_smart_energy_meter_start') | float(0) }}"
+      se:  "{{ states('sensor.ebox_smart_energy_session') | float(0) }}"
+    sensor:
+      - name: "eBox Energie kumuliert"
+        unique_id: ebox_energy_cumulative
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+        icon: mdi:counter
+        availability: >-
+          {{ states('sensor.ebox_smart_energy_active_import_register')
+             not in ['unavailable', 'unknown', 'none', none]
+             and states('sensor.ebox_smart_energy_meter_start')
+             not in ['unavailable', 'unknown', 'none', none] }}
+        state: >-
+          {% set prev = this.attributes.get('anchor', st + se - reg) | float(st + se - reg) %}
+          {% if reg < 0.2 %}
+            {% set anchor = st %}
+          {% elif se > 0.05 %}
+            {% set anchor = st + se - reg %}
+          {% else %}
+            {% set anchor = prev %}
+          {% endif %}
+          {{ (anchor + reg) | round(2, 'floor') }}
+        attributes:
+          anchor: >-
+            {% set prev = this.attributes.get('anchor', st + se - reg) | float(st + se - reg) %}
+            {% if reg < 0.2 %}
+              {% set anchor = st %}
+            {% elif se > 0.05 %}
+              {% set anchor = st + se - reg %}
+            {% else %}
+              {% set anchor = prev %}
+            {% endif %}
+            {{ anchor | round(3) }}
+          last_updated: "{{ now().isoformat() }}"
+
+
+# =============================================================================
+# Additional charged percentage of Hyundai Ioniq 5
+#
+# This sensor ist not the car soc but the additional / differential charge
+# based on the energy and time the car is charged.
+#
+# "Capacity" - total car battery size (77 kWh)
+# "Base" - energy to serve the car electronics while charging (0.1kWh = 100Wh)
+# "Conv" - conversion rate AC-DC and battery chemical losses (heat dissipation)
+# =============================================================================
+
+  - trigger:
+      - platform: state
+        entity_id: sensor.ebox_smart_status_connector
+      - platform: state
+        entity_id: sensor.ebox_smart_energy_active_import_register
+      - platform: state
+        entity_id: sensor.ebox_smart_time_session
+      - platform: homeassistant
+        event: start
+      - platform: event
+        event_type: event_template_reloaded
+    variables:
+      status: "{{ states('sensor.ebox_smart_status_connector') }}"
+      reg: "{{ states('sensor.ebox_smart_energy_active_import_register') | float(0) }}"
+      tim: "{{ states('sensor.ebox_smart_time_session') | float(0) }}"
+    sensor:
+      - name: "Bis jetzt geladen (SOC)"
+        unique_id: car_session_charge_percentage
+        unit_of_measurement: "%"
+        device_class: battery
+        state_class: measurement
+        icon: mdi:battery-charging
+        availability: >-
+          {{ is_number(states('sensor.ebox_smart_energy_active_import_register'))
+             and is_number(states('sensor.ebox_smart_time_session')) }}
+        state: >-
+          {% set capacity = 77 %}
+          {% set base = 0.1 %}
+          {% set conv = 90 %}
+          {% set was_hold = this.attributes.get('hold', false) | bool if this is defined else false %}
+          {% set time_offset = this.attributes.get('time_offset', 0) | float(0) if this is defined else 0 %}
+          {% set last_time = this.attributes.get('last_time', tim) | float(tim) if this is defined else tim %}
+          {# hold: 0 % from a real plug-in (Preparing) until the eBox has
+             zeroed the register for the new plug-in. #}
+          {% if status == 'Preparing' %}
+            {% set hold = true %}
+          {% elif reg < 0.2 %}
+            {% set hold = false %}
+          {% else %}
+            {% set hold = was_hold %}
+          {% endif %}
+          {# time_offset: register accumulates across consecutive sessions on
+             one plug-in, but time_session resets to 0 at every charge start.
+             To keep the base loss (base * hours) in step with the cumulative
+             register, carry the pre-reset session time forward. #}
+          {% if reg < 0.2 %}
+            {% set time_offset = 0 %}
+          {% elif tim < last_time %}
+            {% set time_offset = time_offset + last_time %}
+          {% endif %}
+          {% set eff_h = (time_offset + tim) / 60 %}
+          {% if hold %}
+            0
+          {% elif reg > base * eff_h %}
+            {{ ((reg - base * eff_h) / capacity * conv) | round(1) }}
+          {% else %}
+            0
+          {% endif %}
+        attributes:
+          hold: >-
+            {% set was_hold = this.attributes.get('hold', false) | bool if this is defined else false %}
+            {% if status == 'Preparing' %}
+              {{ true }}
+            {% elif reg < 0.2 %}
+              {{ false }}
+            {% else %}
+              {{ was_hold }}
+            {% endif %}
+          time_offset: >-
+            {% set time_offset = this.attributes.get('time_offset', 0) | float(0) if this is defined else 0 %}
+            {% set last_time = this.attributes.get('last_time', tim) | float(tim) if this is defined else tim %}
+            {% if reg < 0.2 %}
+              {{ 0 }}
+            {% elif tim < last_time %}
+              {{ time_offset + last_time }}
+            {% else %}
+              {{ time_offset }}
+            {% endif %}
+          last_time: "{{ tim }}"
+
+
+# =============================================================================
+# German translation for OCPP Connector-Status ("Happy wife, happy life")
+# =============================================================================
+
+  - sensor:
+      - name: "eBox Smart Connector Status (DE)"
+        unique_id: ebox_status_connector_de
+        icon: mdi:ev-station
+        state: >
+          {% set quelle = 'sensor.ebox_smart_status_connector' %}
+          {% set s = states(quelle) | lower %}
+          {% if s == 'charging' %}
+            {% set mins = states('sensor.ebox_smart_time_session') | int(0) %}
+            {% set h = (mins // 60) %}
+            {% set m = (mins % 60) %}
+            Lädt (seit {% if h > 0 %}{{ '%02d'|format(h) }}h {% endif %}{{ '%02d'|format(m) }}min)
+          {% else %}
+            {% set m = {
+              'available': 'Verfügbar',
+              'preparing': 'Vorbereitung (Kabel steckt)',
+              'suspendedev': 'Pausiert (Fahrzeug)',
+              'suspendedevse': 'Pausiert (Ladestation)',
+              'finishing': 'Fertig (Ladekabel steckt)',
+              'reserved': 'Reserviert',
+              'unavailable': 'Nicht verfügbar',
+              'faulted': 'Fehler',
+              'occupied': 'Belegt'
+            } %}
+            {{ m.get(s, states(quelle)) }}
+          {% endif %}
+        availability: >
+          {{ states('sensor.ebox_smart_status_connector') not in ['unknown', 'unavailable'] }}
+        attributes:
+          original_status: "{{ states('sensor.ebox_smart_status_connector') }}"

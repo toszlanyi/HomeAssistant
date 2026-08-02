@@ -1,12 +1,27 @@
 """
 Woechentlicher Analyse-Export  ->  /config/pyscript/grid_data_backup.py
-Version 1.5.0
+Version 1.6.0
 
 Schreibt jeden Montag 05:00 Uhr die komplette Vorwoche (Mo 00:00 bis Mo 00:00
 lokal) der Analyse-Entitaeten als CSV auf das NAS.
 
 Dateiname:     JJJJ-KWnn-Exportdatum.csv    z. B. 2026-KW30-2026-07-27.csv
 Aufbewahrung:  370 Tage (~52 Dateien)
+
+STATUS-SENSOR
+    sensor.analyse_export_letzter_lauf haelt fest, wann zuletzt exportiert
+    wurde (state = Zeitstempel; Attribute: ergebnis, datei, pfad ...).
+
+    Pyscript-States ueberleben keinen Neustart. Damit der Sensor NICHT erst
+    nach dem naechsten Montagslauf wieder existiert, wird er zusaetzlich beim
+    Start (@time_trigger("startup"), feuert auch bei pyscript.reload) aus dem
+    Zielordner rekonstruiert: die neueste vorhandene Exportdatei liefert
+    Zeitstempel (mtime), Name und Groesse. Ist der Ordner nicht erreichbar
+    oder leer, wird der Sensor trotzdem angelegt und zeigt das an.
+
+    Manuell aufrufbar ueber Entwicklerwerkzeuge -> Aktionen ->
+    pyscript.analyse_export_status  (loest KEINEN Export aus, liest nur den
+    Zielordner).
 
 CSV-SPALTEN
     entity_id, state, last_changed, samples, resid
@@ -40,11 +55,15 @@ WARUM PYSCRIPT UND NICHT shell_command
 
 EINRICHTUNG
     1. Diese Datei nach /config/pyscript/ kopieren
-    2. pyscript.reload aufrufen   -> fertig, kein Neustart
+    2. pyscript.reload aufrufen   -> fertig, kein Neustart.
+       Beim Reload wird sofort sensor.analyse_export_letzter_lauf aus dem
+       Zielordner angelegt (Status der zuletzt gefundenen Datei).
 
 MANUELLER AUFRUF / TEST
     Entwicklerwerkzeuge -> Aktionen -> pyscript.export_woche
-    Optionaler Parameter weeks_back (Standard 1 = letzte Woche).
+        Optionaler Parameter weeks_back (Standard 1 = letzte Woche).
+    Entwicklerwerkzeuge -> Aktionen -> pyscript.analyse_export_status
+        Nur den Status-Sensor aus dem Zielordner aktualisieren.
 
 VORAUSSETZUNGEN
     - pyscript mit allow_all_imports: true (fuer sqlite3/csv/os/re)
@@ -76,12 +95,15 @@ KEEP_DAYS = 370
 # Das ist ein anderer Mount-Namespace und hier nicht verwendbar.
 OUT_DIR = "/media/Medien/HA_Backup/Netz_Messwerte_Backup"
 
+STATUS_ENTITY = "sensor.analyse_export_letzter_lauf"
+
 # Nur exakt dieses Muster wird beim Aufraeumen geloescht. Alle anderen
 # Dateien im selben Ordner bleiben unangetastet.
 FNAME_RE = re.compile(r"^\d{4}-KW\d{2}-\d{4}-\d{2}-\d{2}\.csv$")
 PART_RE = re.compile(r"^\d{4}-KW\d{2}-\d{4}-\d{2}-\d{2}\.csv\.part$")
 
 ENTITIES = [
+    "sensor.uptime",
     # --- Spannungen ---
     "sensor.netzspannung_l1",
     "sensor.netzspannung_l2",
@@ -168,7 +190,6 @@ ENTITIES = [
     #     PHANTOM_AVG_WINDOW_S nachtraeglich zu beurteilen. ---
     "sensor.netzbezug_taeglich",
     "sensor.netzeinspeisung_taeglich",
-    "sensor.solis_netzbezug_heute",
     # --- Wallbox ---
     "sensor.ebox_smart_current_import",
     "sensor.ebox_smart_voltage",
@@ -184,6 +205,84 @@ def _week_window(now_local, weeks_back):
     end = monday - timedelta(days=7 * (weeks_back - 1))
     start = end - timedelta(days=7)
     return start, end
+
+
+@pyscript_executor
+def _latest_export():
+    """Neueste Exportdatei im Zielordner finden (blockierender NFS-Zugriff,
+    laeuft daher im Worker-Thread).
+
+    Rueckgabe (Tupel, weil im Executor keine pyscript-Objekte verfuegbar sind):
+        ("ok",          fname, mtime_epoch, size_mb)  Datei gefunden
+        ("empty",       None,  None,        None)     Ordner ok, keine Datei
+        ("unreachable", errtext, None,      None)     Ordner nicht lesbar
+    """
+    try:
+        names = [n for n in os.listdir(OUT_DIR) if FNAME_RE.match(n)]
+    except OSError as err:
+        return ("unreachable", str(err), None, None)
+    if not names:
+        return ("empty", None, None, None)
+    newest = None
+    newest_mtime = -1.0
+    for n in names:
+        try:
+            m = os.path.getmtime(os.path.join(OUT_DIR, n))
+        except OSError:
+            continue
+        if m > newest_mtime:
+            newest_mtime = m
+            newest = n
+    if newest is None:
+        return ("empty", None, None, None)
+    size_mb = os.path.getsize(os.path.join(OUT_DIR, newest)) / 1e6
+    return ("ok", newest, newest_mtime, size_mb)
+
+
+def _set_status_from_disk(reason):
+    """Status-Sensor aus der zuletzt gefundenen Exportdatei setzen, ohne einen
+    Export auszuloesen. Sorgt dafuer, dass der Sensor auch ohne Lauf in dieser
+    Session existiert. Bewusst ohne Comprehensions/Generatoren, da dies eine
+    normale pyscript-Funktion ist."""
+    status, a, b, c = _latest_export()
+
+    attrs = {
+        "pfad": OUT_DIR,
+        "quelle": reason,
+        "friendly_name": "Analyse-Export letzter Lauf",
+        "icon": "mdi:database-export",
+    }
+
+    if status == "ok":
+        fname = a
+        when = datetime.fromtimestamp(b).strftime("%Y-%m-%d %H:%M")
+        attrs["datei"] = fname
+        attrs["groesse_mb"] = round(c, 1)
+        # KW und Exportdatum aus dem Dateinamen ziehen (JJJJ-KWnn-YYYY-MM-DD)
+        parts = fname[:-4].split("-")
+        if len(parts) == 5:
+            attrs["kalenderwoche"] = parts[0] + "-" + parts[1]
+            attrs["exportdatum"] = parts[2] + "-" + parts[3] + "-" + parts[4]
+        attrs["ergebnis"] = "zuletzt gefundener Export: " + fname
+        state.set(STATUS_ENTITY, when, new_attributes=attrs)
+        log.info("analyse_export_status: Status aus Zielordner gesetzt (%s)" % fname)
+    elif status == "empty":
+        attrs["ergebnis"] = "noch kein Export im Zielordner"
+        state.set(STATUS_ENTITY, "kein Export", new_attributes=attrs)
+        log.info("analyse_export_status: kein Export im Zielordner gefunden")
+    else:
+        attrs["ergebnis"] = "Zielordner nicht erreichbar: " + str(a)
+        state.set(STATUS_ENTITY, "Zielordner nicht erreichbar", new_attributes=attrs)
+        log.warning("analyse_export_status: Zielordner nicht erreichbar (%s)" % a)
+
+
+@time_trigger("startup")
+@service
+def analyse_export_status():
+    """Beim Start (feuert auch bei pyscript.reload) und auf Wunsch manuell:
+    den Status-Sensor anlegen bzw. aus dem Zielordner aktualisieren. Loest
+    KEINEN Export aus, liest nur, welche Datei zuletzt geschrieben wurde."""
+    _set_status_from_disk("beim Start aus Zielordner ermittelt")
 
 
 @pyscript_executor
@@ -331,12 +430,13 @@ def export_woche(weeks_back=1):
 
     log.info("export_woche: " + result)
     state.set(
-        "sensor.analyse_export_letzter_lauf",
+        STATUS_ENTITY,
         now_local.strftime("%Y-%m-%d %H:%M"),
         new_attributes={
             "ergebnis": result,
             "pfad": OUT_DIR,
             "datei": fname,
+            "quelle": "letzter Lauf",
             "friendly_name": "Analyse-Export letzter Lauf",
             "icon": "mdi:database-export",
         },

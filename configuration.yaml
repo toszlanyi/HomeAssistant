@@ -39,6 +39,11 @@ recorder:
       # --- Filterketten: Median/Percentile-Zwischenstufen nicht in DB schreiben.
       #     Die _mit_glattung-Mittelwerte bleiben aufgezeichnet. ---
       - sensor.*_gefiltert
+    entities:
+      - sensor.pv_leistung_netto
+      - sensor.pv_strom_uberschuss
+      - sensor.wr_leistung
+      - sensor.haus_ohne_wallbox
 
 # Log Level
 logger:

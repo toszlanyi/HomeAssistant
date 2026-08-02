@@ -1,0 +1,49 @@
+# ── card-mod-Theme: kompakte, einheitliche Kartenschrift ──────────────
+#
+# ABLAGE:
+#   Diese Datei in deinen Theme-Ordner legen, z. B.
+#   /config/themes/systemstatus_kompakt.yaml
+#   (Voraussetzung: in configuration.yaml lädt HA die Themes, üblich:
+#        frontend:
+#          themes: !include_dir_merge_named themes )
+#   Danach: Entwicklerwerkzeuge → YAML → "Themes neu laden"
+#   (oder HA neu starten).
+#
+# AKTIVIEREN NUR FÜR DIESES DASHBOARD:
+#   In der Dashboard-YAML unter dem View (auf gleicher Ebene wie
+#   'sections:', 'header:', 'badges:') eine Zeile ergänzen:
+#        theme: systemstatus_kompakt
+#   Dann gilt die kleinere Schrift NUR für diese Ansicht.
+#
+# Werte nach Geschmack anpassen: .name = Titel, .value/.state = große Zahl,
+# .measurement = Einheit (%/°C).
+
+systemstatus_kompakt:
+  # Signalisiert card-mod, dass dieses Theme eigene Karten-Styles mitbringt.
+  card-mod-theme: systemstatus_kompakt
+
+  # Wird automatisch auf JEDE ha-card der Ansicht angewendet.
+  card-mod-card: |
+    ha-card {
+      --ha-card-header-font-size: 14px;
+    }
+    /* Titelzeile der Entity-Karten (z. B. "CPU Last") */
+    .name {
+      font-size: 12px !important;
+      line-height: 1.2 !important;
+      white-space: normal !important;
+    }
+    /* Die große Wertzahl – je nach HA-Version .value oder .state */
+    .value,
+    .state {
+      font-size: 20px !important;
+      line-height: 1.1 !important;
+    }
+    /* Einheit hinter der Zahl (%, °C, MB) */
+    .measurement {
+      font-size: 11px !important;
+    }
+    /* Container-Basisgröße, falls die Zahl über .info geerbt wird */
+    .info {
+      font-size: 12px !important;
+    }

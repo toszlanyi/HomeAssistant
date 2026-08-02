@@ -21,62 +21,6 @@ template:
             0
           {% endif %}
 
-#   Ladeenergie ins Auto (zusätzliche Kapazität in %)
-
-  - trigger:
-      - platform: state
-        entity_id: sensor.ebox_smart_status_connector
-      - platform: state
-        entity_id: sensor.ebox_smart_energy_active_import_register
-      - platform: homeassistant
-        event: start
-      - platform: event
-        event_type: event_template_reloaded
-    sensor:
-      - name: "Bis jetzt geladen (SOC)"
-        unique_id: car_session_charge_percentage
-        unit_of_measurement: "%"
-        device_class: battery
-        state_class: measurement
-        icon: mdi:battery-charging
-        availability: >-
-          {{ is_number(states('sensor.ebox_smart_energy_active_import_register')) }}
-        state: >-
-          {% set status = states('sensor.ebox_smart_status_connector') %}
-          {% set reg = states('sensor.ebox_smart_energy_active_import_register') | float(0) %}
-
-          {% set capacity = 77 %}
-          {% set base = 0.26 %}
-          {% set conv = 90 %}
-          {% set was_hold = this.attributes.get('hold', false) if this is defined else false %}
-
-          {% if status == 'Preparing' %}
-            {% set hold = true %}
-          {% elif reg < 0.2 %}
-            {% set hold = false %}
-          {% else %}
-            {% set hold = was_hold %}
-          {% endif %}
-          {% if hold %}
-            0
-          {% elif reg > base %}
-            {{ ((reg - base) / capacity * conv) | round(1) }}
-          {% else %}
-            0
-          {% endif %}
-        attributes:
-          hold: >-
-            {% set was_hold = this.attributes.get('hold', false) if this is defined else false %}
-            {% set status = states('sensor.ebox_smart_status_connector') %}
-            {% set reg = states('sensor.ebox_smart_energy_active_import_register') | float(0) %}
-            {% if status == 'Preparing' %}
-              true
-            {% elif reg < 0.2 %}
-              false
-            {% else %}
-              {{ was_hold }}
-            {% endif %}
-
 sensor:
 
 #   PV Strom Überschuss - Glättung durch Mittelwerte
@@ -133,6 +77,7 @@ timer:
   ebox_sleep_protection:
     name: "eBox Sleep-Schutz Timer"
     duration: "00:04:30"
+    restore: true
     icon: mdi:timer-outline
 
 counter:

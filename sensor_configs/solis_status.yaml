@@ -1,0 +1,115 @@
+# ============================================================================
+# Solis Status / Island mode
+# ----------------------------------------------------------------------------
+# Feeds off sensor.solis_raw_inverter_status (register 33095, set in
+# solis_pyscript.py).
+#
+# Mapping built from the official PDF Appendix 2 (authoritative for this
+# hardware). Operating states 0x0-0x3 cross-checked against the Solarman
+# integration (StephanJoubert/home_assistant_solarman) which confirms
+# 0x3 = "On Grid/Generating".
+#
+# NOTE on conflicts: Solarman maps 0x1004 -> "Grid OverVoltage", but the
+# official PDF says 0x1004 = "Grid Off"; Solarman's grid-fault block is
+# shifted vs the PDF. The PDF is used here. Both sources DO agree that
+# 0x1015 = "No Grid" -> best-supported island indicator.
+#
+# 33095 shows one momentary status. Bit-packed multi-fault detail lives in
+# 33116-33120 (Appendix 5) and is not reproduced here.
+# ============================================================================
+
+template:
+  - sensor:
+      - name: "Solis Wechselrichter Status"
+        unique_id: solis_inverter_status_text
+        icon: mdi:state-machine
+        state: >
+          {% set c = states('sensor.solis_raw_inverter_status') | int(-1) %}
+          {% set m = {
+              0: 'Wartezustand',
+              1: 'Anlauf (Open Loop)',
+              2: 'Sanftanlauf',
+              3: 'Netzbetrieb / Erzeugung',
+              4: 'Bypass-Wechselrichtung (Backup)',
+              5: 'Bypass-Synchronisation',
+              6: 'Bypass Netzbetrieb',
+              15: 'Normalbetrieb',
+              4100: 'Netz getrennt (Grid Off)',
+              4112: 'Netz-Ueberspannung',
+              4113: 'Netz-Unterspannung',
+              4114: 'Netz-Ueberfrequenz',
+              4115: 'Netz-Unterfrequenz',
+              4116: 'Netzimpedanz zu hoch',
+              4117: 'Kein Netz (No-Grid)',
+              4118: 'Netz unsymmetrisch',
+              4119: 'Netzfrequenz-Schwankung',
+              4120: 'Netz-Ueberstrom',
+              4121: 'Netzstrom-Abtastfehler',
+              4128: 'DC-Ueberspannung',
+              4129: 'DC-Bus-Ueberspannung',
+              4130: 'DC-Bus unsymmetrisch',
+              4131: 'DC-Bus-Unterspannung',
+              4132: 'DC-Bus unsymmetrisch 2',
+              4133: 'DC-Ueberstrom Pfad A',
+              4134: 'DC-Ueberstrom Pfad B',
+              4135: 'DC-Stoerung',
+              4136: 'DC verpolt',
+              4137: 'PV-Mittelpunkt Erdschluss',
+              4144: 'Netzstoerung (Schutz)',
+              4145: 'DSP-Init-Schutz',
+              4146: 'Uebertemperatur-Schutz',
+              4147: 'PV-Isolationsfehler',
+              4148: 'Fehlerstrom-Schutz',
+              4149: 'Relais-Pruefung',
+              4150: 'DSP-B-Schutz',
+              4151: 'DC-Einspeisung (Schutz)',
+              4152: '12V-Unterspannung',
+              4153: 'Fehlerstrom-Selbsttest',
+              4154: 'Untertemperatur-Schutz',
+              4160: 'AFCI-Selbsttest',
+              4161: 'AFCI-Fehler (Lichtbogen)',
+              4162: 'DSP SRAM-Fehler',
+              4163: 'DSP FLASH-Fehler',
+              4164: 'DSP PC-Pointer-Fehler',
+              4165: 'DSP Register-Fehler',
+              4166: 'Netzstoerung 02',
+              4167: 'Netzstrom-Abtastfehler (AD)',
+              4168: 'IGBT-Ueberstrom',
+              4176: 'Netz-Transient-Ueberstrom',
+              4177: 'Batterie HW-Ueberspannung',
+              4178: 'LLC HW-Ueberstrom',
+              4179: 'Batterie-Ueberspannung',
+              4180: 'Batterie-Unterspannung',
+              4181: 'Batterie nicht verbunden',
+              4182: 'Backup-Ueberspannung',
+              4183: 'Backup-Ueberlast',
+              4184: 'DSP-Selbsttest-Fehler',
+              8208: 'Fail-Safe',
+              8209: 'Meter-Kommunikation gestoert',
+              8210: 'Batterie-Kommunikation gestoert (CAN)',
+              8212: 'DSP-Kommunikation gestoert',
+              8213: 'BMS-Alarm',
+              8214: 'Batterie-Auswahl inkonsistent',
+              8215: 'BMS-Alarm 2',
+              8216: 'DRM-Verbindung gestoert',
+              8217: 'Meter-Auswahl gestoert',
+              8224: 'Blei-Akku Uebertemperatur',
+              8225: 'Blei-Akku Untertemperatur',
+              61456: 'Netz-Surge (Warnung)',
+              61457: 'Luefter-Fehler (Warnung)'
+          } %}
+          {% if c < 0 %}unbekannt{% else %}{{ m.get(c, 'Code 0x' ~ ('%04X' | format(c))) }}{% endif %}
+        attributes:
+          code: "{{ states('sensor.solis_raw_inverter_status') | int(-1) }}"
+
+  - binary_sensor:
+      # on = island mode. For power_outage.state_alert of the Power Flow Card.
+      - name: "Solis Inselbetrieb"
+        unique_id: solis_island_mode
+        icon: mdi:transmission-tower-off
+        # 4117 (0x1015 No-Grid) is confirmed by both the PDF and Solarman.
+        # 4100 (0x1004 Grid Off) is PDF-only (Solarman calls it OverVoltage).
+        # Verify against a real outage, then narrow to the code the inverter
+        # actually holds while running on backup.
+        state: "{{ states('sensor.solis_raw_inverter_status') | int(-1) in [4100, 4117] }}"
+        availability: "{{ states('sensor.solis_raw_inverter_status') not in ['unknown', 'unavailable', 'none'] }}"

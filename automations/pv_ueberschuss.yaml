@@ -110,6 +110,7 @@
 # SURPLUS CURRENT SENSOR:
 #   sensor.pv_strom_uberschuss
 #   = (DC_power − Inverter_losses − (house_consumption - wallbox_AC)) / (3 × V_avg)
+# followed by a median and mean filter. Only the smoothed sensor is used here.
 # =============================================================================
 
 - id: pv_ueberschuss_hauptsteuerung

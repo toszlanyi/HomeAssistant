@@ -1,7 +1,6 @@
 template:
   - sensor:
       # --- PV Ertrags-Historie ---
-      
       - name: "Solis PV Ertrag Gesamt"
         unique_id: solis_pv_total_yield
         unit_of_measurement: "kWh"
@@ -34,8 +33,7 @@ template:
         icon: mdi:calendar-today
         state: "{{ states('sensor.solis_raw_pv_today_yield') | float(0) }}"
 
-        # --- Aktuelle PV Leistungen ---
-        
+      # --- Aktuelle PV Leistungen ---
       - name: "Solis PV Leistung DC (Gesamt)"
         unique_id: solis_pv_dc_power
         unit_of_measurement: "W"
@@ -53,7 +51,6 @@ template:
         state: "{{ states('sensor.solis_raw_pv_ac_power') | float(0) }}"
 
       # --- String Leistungen ---
-      
       - name: "Solis PV String 1 Leistung"
         unique_id: solis_pv_p1
         unit_of_measurement: "W"
@@ -87,7 +84,6 @@ template:
         state: "{{ states('sensor.solis_raw_pv_p4') | float(0) }}"
 
       # --- Netz-Statistiken ---
-      
       - name: "Solis Netzleistung aktuell"
         unique_id: solis_grid_power_now
         unit_of_measurement: "W"
@@ -130,7 +126,6 @@ template:
         state: "{{ states('sensor.solis_raw_grid_export_today') | float(0) }}"
 
       # --- Hausverbrauch ---
-
       - name: "Hausverbrauch"
         unique_id: solis_house_load
         unit_of_measurement: "W"
@@ -138,7 +133,7 @@ template:
         state_class: measurement
         icon: mdi:home-lightning-bolt
         state: "{{ states('sensor.solis_raw_house_load') | float(0) }}"
-      
+
       - name: "Solis Hausverbrauch gesamt"
         unique_id: solis_house_yield_total
         unit_of_measurement: "kWh"
@@ -156,7 +151,6 @@ template:
         state: "{{ states('sensor.solis_raw_house_today') | float(0) }}"
 
       # --- Wechselrichter Temperatur ---
-
       - name: "Solis Wechselrichter Temperatur"
         unique_id: solis_wr_temperature
         unit_of_measurement: "°C"
@@ -164,3 +158,106 @@ template:
         state_class: measurement
         icon: mdi:thermometer
         state: "{{ states('sensor.solis_raw_wr_temperature') | float(0) }}"
+
+      # --- Backup / Ersatzstrom (EPS-Port): Direktwerte ---
+      - name: "Solis Backup Spannung L1"
+        unique_id: solis_backup_v_l1
+        unit_of_measurement: "V"
+        device_class: voltage
+        state_class: measurement
+        icon: mdi:sine-wave
+        state: "{{ states('sensor.solis_raw_backup_v_l1') | float(0) }}"
+
+      - name: "Solis Backup Spannung L2"
+        unique_id: solis_backup_v_l2
+        unit_of_measurement: "V"
+        device_class: voltage
+        state_class: measurement
+        icon: mdi:sine-wave
+        state: "{{ states('sensor.solis_raw_backup_v_l2') | float(0) }}"
+
+      - name: "Solis Backup Spannung L3"
+        unique_id: solis_backup_v_l3
+        unit_of_measurement: "V"
+        device_class: voltage
+        state_class: measurement
+        icon: mdi:sine-wave
+        state: "{{ states('sensor.solis_raw_backup_v_l3') | float(0) }}"
+
+      - name: "Solis Backup Strom L1"
+        unique_id: solis_backup_i_l1
+        unit_of_measurement: "A"
+        device_class: current
+        state_class: measurement
+        icon: mdi:current-ac
+        state: "{{ states('sensor.solis_raw_backup_i_l1') | float(0) }}"
+
+      - name: "Solis Backup Strom L2"
+        unique_id: solis_backup_i_l2
+        unit_of_measurement: "A"
+        device_class: current
+        state_class: measurement
+        icon: mdi:current-ac
+        state: "{{ states('sensor.solis_raw_backup_i_l2') | float(0) }}"
+
+      - name: "Solis Backup Strom L3"
+        unique_id: solis_backup_i_l3
+        unit_of_measurement: "A"
+        device_class: current
+        state_class: measurement
+        icon: mdi:current-ac
+        state: "{{ states('sensor.solis_raw_backup_i_l3') | float(0) }}"
+
+      - name: "Solis Backup Leistung"
+        unique_id: solis_backup_load
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        icon: mdi:home-battery
+        state: "{{ states('sensor.solis_raw_backup_load') | float(0) }}"
+
+      # --- Backup Wirkleistung je Phase (auf 33148 skaliert) ---
+      - name: "Solis Backup Wirkleistung L1"
+        unique_id: solis_backup_power_l1
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        icon: mdi:home-lightning-bolt-outline
+        state: "{{ states('sensor.solis_raw_backup_power_l1') | float(0) }}"
+
+      - name: "Solis Backup Wirkleistung L2"
+        unique_id: solis_backup_power_l2
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        icon: mdi:home-lightning-bolt-outline
+        state: "{{ states('sensor.solis_raw_backup_power_l2') | float(0) }}"
+
+      - name: "Solis Backup Wirkleistung L3"
+        unique_id: solis_backup_power_l3
+        unit_of_measurement: "W"
+        device_class: power
+        state_class: measurement
+        icon: mdi:home-lightning-bolt-outline
+        state: "{{ states('sensor.solis_raw_backup_power_l3') | float(0) }}"
+
+      # --- Backup Energie (nur bei vorhandenen Registern 33590/33596) ---
+      # availability haelt die total_increasing-Zaehler auf "unavailable" statt
+      # auf 0, wenn Chunk D fehlt — sonst wuerde die Statistik einen Sturz sehen.
+      - name: "Solis Backup Energie gesamt"
+        unique_id: solis_backup_energy_total
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+        icon: mdi:home-battery-outline
+        availability: "{{ states('sensor.solis_raw_backup_energy_total') not in ['unknown', 'unavailable', 'none'] }}"
+        state: "{{ states('sensor.solis_raw_backup_energy_total') | float(0) }}"
+
+      - name: "Solis Backup Energie heute"
+        unique_id: solis_backup_energy_today
+        unit_of_measurement: "kWh"
+        device_class: energy
+        state_class: total_increasing
+        icon: mdi:home-battery-outline
+        availability: "{{ states('sensor.solis_raw_backup_energy_today') not in ['unknown', 'unavailable', 'none'] }}"
+        state: "{{ states('sensor.solis_raw_backup_energy_today') | float(0) }}"

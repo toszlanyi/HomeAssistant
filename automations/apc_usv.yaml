@@ -1,0 +1,42 @@
+alias: USV – Geräte bei niedrigem Akku geordnet herunterfahren
+mode: single
+triggers:
+  - trigger: numeric_state
+    entity_id: sensor.apcups_batterie_ladung
+    below: 85
+    for:
+      seconds: 30
+    id: nas_aus
+  - trigger: numeric_state
+    entity_id: sensor.apcups_batterie_ladung
+    below: 15
+    for:
+      seconds: 30
+    id: rpi_aus
+conditions:
+  - condition: template
+    value_template: "{{ 'OB' in states('sensor.apcups_statusdaten') }}"
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: nas_aus
+        sequence:
+          - action: button.press
+            target:
+              entity_id: button.datenzentrum_herunterfahren
+          - action: persistent_notification.create
+            data:
+              title: "USV: NAS heruntergefahren"
+              message: "Akku {{ states('sensor.apcups_batterie_ladung') }} % im Batteriebetrieb – NAS geordnet heruntergefahren."
+      - conditions:
+          - condition: trigger
+            id: rpi_aus
+        sequence:
+          - action: persistent_notification.create
+            data:
+              title: "USV: RPi fährt herunter"
+              message: "Akku {{ states('sensor.apcups_batterie_ladung') }} % – HAOS wird sauber heruntergefahren."
+          - delay:
+              seconds: 5
+          - action: hassio.host_shutdown
