@@ -1,18 +1,16 @@
 # ============================================================================
-# Solis Status / Island mode
+# Solis status / island mode
 # ----------------------------------------------------------------------------
-# Feeds off sensor.solis_raw_inverter_status (register 33095, set in
+# Fed by sensor.solis_raw_inverter_status (register 33095, set in
 # solis_pyscript.py).
 #
-# Mapping built from the official PDF Appendix 2 (authoritative for this
-# hardware). Operating states 0x0-0x3 cross-checked against the Solarman
-# integration (StephanJoubert/home_assistant_solarman) which confirms
-# 0x3 = "On Grid/Generating".
+# Mapping from the official PDF Appendix 2 (authoritative for this hardware).
+# States 0x0-0x3 cross-checked against the Solarman integration, which
+# confirms 0x3 = "On Grid / Generating".
 #
-# NOTE on conflicts: Solarman maps 0x1004 -> "Grid OverVoltage", but the
-# official PDF says 0x1004 = "Grid Off"; Solarman's grid-fault block is
-# shifted vs the PDF. The PDF is used here. Both sources DO agree that
-# 0x1015 = "No Grid" -> best-supported island indicator.
+# Conflict note: Solarman maps 0x1004 -> "Grid OverVoltage", the PDF says
+# 0x1004 = "Grid Off" (its grid-fault block is shifted vs the PDF). The PDF is
+# used here. Both agree 0x1015 = "No Grid", the best island indicator.
 #
 # 33095 shows one momentary status. Bit-packed multi-fault detail lives in
 # 33116-33120 (Appendix 5) and is not reproduced here.
@@ -103,13 +101,13 @@ template:
           code: "{{ states('sensor.solis_raw_inverter_status') | int(-1) }}"
 
   - binary_sensor:
-      # on = island mode. For power_outage.state_alert of the Power Flow Card.
+      # on = island mode. Drives power_outage.state_alert of the Power Flow Card.
+      # 4117 (0x1015 No-Grid) confirmed by both PDF and Solarman.
+      # 4100 (0x1004 Grid Off) is PDF-only (Solarman calls it OverVoltage).
+      # Verify against a real outage, then narrow to the code the inverter
+      # actually holds while running on backup.
       - name: "Solis Inselbetrieb"
         unique_id: solis_island_mode
         icon: mdi:transmission-tower-off
-        # 4117 (0x1015 No-Grid) is confirmed by both the PDF and Solarman.
-        # 4100 (0x1004 Grid Off) is PDF-only (Solarman calls it OverVoltage).
-        # Verify against a real outage, then narrow to the code the inverter
-        # actually holds while running on backup.
         state: "{{ states('sensor.solis_raw_inverter_status') | int(-1) in [4100, 4117] }}"
-        availability: "{{ states('sensor.solis_raw_inverter_status') not in ['unknown', 'unavailable', 'none'] }}"
+        availability: "{{ is_number(states('sensor.solis_raw_inverter_status')) }}"

@@ -1,4 +1,6 @@
-# Anschluss am RPi gpio Pin 7 & 1 (3.3V)
+# Gas meter via an S0 pulse input on the RPi GPIO.
+
+# Wired to RPi GPIO pins 7 & 1 (3.3V)
 binary_sensor:
   - platform: rpi_gpio
     sensors:
@@ -9,13 +11,13 @@ binary_sensor:
         invert_logic: false
         bouncetime: 200 # in milli sec
 
-# 2. Zähler für die Impulse
+# Pulse counter, restored across restarts
 counter:
   gas_counter:
     name: "Gaszähler Impulse Gesamt"
     step: 1
 
-# 3. Wenn Impuls, dann zähle hoch
+# Increment the counter on each rising edge
 automation:
   - alias: "Gasimpuls hochzählen"
     id: gas_pulse_counter_auto
@@ -29,7 +31,8 @@ automation:
         target:
           entity_id: counter.gas_counter
 
-# 4. Umrechnung in m³ für das Dashboard
+# Convert pulses to m³ for the dashboard. is_number guards against a brief
+# missing counter after a restart so the total_increasing reading never drops.
 template:
   - sensor:
       - name: "Gaszähler"
@@ -37,6 +40,7 @@ template:
         device_class: gas
         state_class: total_increasing
         unique_id: gas_meter_m3
+        availability: "{{ is_number(states('counter.gas_counter')) }}"
         state: >
           {% set basis = 7625.60 %}
           {% set impulse = states('counter.gas_counter') | float(0) %}

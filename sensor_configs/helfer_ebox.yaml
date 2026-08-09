@@ -1,9 +1,6 @@
 # =============================================================================
 # eBox Smart – Cumulative Energy Meter (Firmware 3.0.4+)
 # =============================================================================
-# Location:  config/sensor_configs/ebox_energy_meter.yaml
-# Included via:  homeassistant: packages: !include_dir_named sensor_configs
-#
 # CONCEPT
 #   Total meter = anchor + register
 #
@@ -13,23 +10,17 @@
 #                consecutive sessions as long as the cable stays plugged in,
 #                resets to 0 only when charging begins.
 #
-# ANCHOR RULES  (verified against real eBox meter readings)
-#
-#   (A) register < 0.2  ->  cable connected/ charging starts / register zeroed
+#   (A) register < 0.2  ->  cable connected / charging starts / register zeroed
 #                           anchor = start
-#                           (start is already committed ~16-18 s before
-#                           register reaches 0; the 0.2 threshold safely
-#                           covers a 15 s OCPP sampling interval at 11kW)
 #
 #   (B) session > 0.05  ->  parked after charging
 #                           anchor = start + session - register
-#                           (self-healing / bootstrap: the absolute reading
-#                           is known exactly as start + session at this point;
-#                           acts as backup if rule A was missed, e.g. after
-#                           an HA restart mid-session)
+#                           (self-healing / bootstrap)
 #
-#   otherwise           ->  active charging session, anchor unchanged
+#   (C) otherwise       ->  active charging session, anchor unchanged
 #                           (frozen value carried forward via own attribute)
+#
+#   (D) rule C but no stored anchor  ->  state genuinely unknown, HOLD.
 # =============================================================================
 
 template:
@@ -38,14 +29,15 @@ template:
         entity_id:
           - sensor.ebox_smart_energy_active_import_register
           - sensor.ebox_smart_energy_session
+          - sensor.ebox_smart_energy_meter_start
       - platform: homeassistant
         event: start
       - platform: event
         event_type: event_template_reloaded
     variables:
       reg: "{{ states('sensor.ebox_smart_energy_active_import_register') | float(0) }}"
-      st:  "{{ states('sensor.ebox_smart_energy_meter_start') | float(0) }}"
-      se:  "{{ states('sensor.ebox_smart_energy_session') | float(0) }}"
+      st: "{{ states('sensor.ebox_smart_energy_meter_start') | float(0) }}"
+      se: "{{ states('sensor.ebox_smart_energy_session') | float(0) }}"
     sensor:
       - name: "eBox Energie kumuliert"
         unique_id: ebox_energy_cumulative
@@ -53,44 +45,80 @@ template:
         device_class: energy
         state_class: total_increasing
         icon: mdi:counter
+        # All three inputs are used in the maths, so all three are required
+        # here. Leaving 'session' out let a missing state become 0.0.
         availability: >-
-          {{ states('sensor.ebox_smart_energy_active_import_register')
-             not in ['unavailable', 'unknown', 'none', none]
-             and states('sensor.ebox_smart_energy_meter_start')
-             not in ['unavailable', 'unknown', 'none', none] }}
+          {{ is_number(states('sensor.ebox_smart_energy_active_import_register'))
+             and is_number(states('sensor.ebox_smart_energy_meter_start'))
+             and is_number(states('sensor.ebox_smart_energy_session')) }}
         state: >-
-          {% set prev = this.attributes.get('anchor', st + se - reg) | float(st + se - reg) %}
+          {% set prev_anchor = this.attributes.get('anchor', none) if this is defined else none %}
+          {% set prev_state = this.state if this is defined else none %}
           {% if reg < 0.2 %}
             {% set anchor = st %}
           {% elif se > 0.05 %}
             {% set anchor = st + se - reg %}
+          {% elif is_number(prev_anchor) %}
+            {% set anchor = prev_anchor | float %}
           {% else %}
-            {% set anchor = prev %}
+            {% set anchor = none %}
           {% endif %}
-          {{ (anchor + reg) | round(2, 'floor') }}
+          {% if anchor is none %}
+            {# No rule applies and no stored anchor: hold, never guess. #}
+            {{ prev_state if is_number(prev_state) else 'unknown' }}
+          {% else %}
+            {% set raw = anchor + reg %}
+            {# total_increasing: the reading cannot physically fall. #}
+            {{ ([raw, prev_state | float(raw)] | max) | round(2, 'floor') }}
+          {% endif %}
         attributes:
+          # Same decision tree as 'state'. It has to be repeated because the
+          # state template is rendered BEFORE the attributes and therefore
+          # still sees the previous attribute values.
           anchor: >-
-            {% set prev = this.attributes.get('anchor', st + se - reg) | float(st + se - reg) %}
+            {% set prev_anchor = this.attributes.get('anchor', none) if this is defined else none %}
             {% if reg < 0.2 %}
-              {% set anchor = st %}
+              {{ st | round(3) }}
             {% elif se > 0.05 %}
-              {% set anchor = st + se - reg %}
+              {{ (st + se - reg) | round(3) }}
+            {% elif is_number(prev_anchor) %}
+              {{ prev_anchor | float | round(3) }}
             {% else %}
-              {% set anchor = prev %}
+              {{ '' }}
             {% endif %}
-            {{ anchor | round(3) }}
+          # Diagnostic: which branch produced the current value.
+          #   A / B / frozen -> normal operation
+          #   hold           -> inputs inconsistent, previous value kept
+          #   clamped        -> monotonic guard engaged (investigate if seen)
+          anchor_rule: >-
+            {% set prev_anchor = this.attributes.get('anchor', none) if this is defined else none %}
+            {% set prev_state = this.state if this is defined else none %}
+            {% if reg < 0.2 %}
+              {% set anchor = st %}{% set rule = 'A' %}
+            {% elif se > 0.05 %}
+              {% set anchor = st + se - reg %}{% set rule = 'B' %}
+            {% elif is_number(prev_anchor) %}
+              {% set anchor = prev_anchor | float %}{% set rule = 'frozen' %}
+            {% else %}
+              {% set anchor = none %}{% set rule = 'hold' %}
+            {% endif %}
+            {% if anchor is none %}
+              hold
+            {% elif is_number(prev_state) and (anchor + reg) < (prev_state | float) %}
+              clamped
+            {% else %}
+              {{ rule }}
+            {% endif %}
           last_updated: "{{ now().isoformat() }}"
 
 
 # =============================================================================
-# Additional charged percentage of Hyundai Ioniq 5
-#
-# This sensor ist not the car soc but the additional / differential charge
-# based on the energy and time the car is charged.
-#
-# "Capacity" - total car battery size (77 kWh)
-# "Base" - energy to serve the car electronics while charging (0.1kWh = 100Wh)
-# "Conv" - conversion rate AC-DC and battery chemical losses (heat dissipation)
+# Additional charged percentage of the Hyundai Ioniq 5.
+# Not the car SoC, but the differential charge derived from the energy and time
+# the car has been charging.
+#   capacity - usable battery size (77 kWh)
+#   base     - standby draw of the car electronics while charging (0.1 kWh/h)
+#   conv     - AC-DC and battery losses (90 %)
 # =============================================================================
 
   - trigger:
@@ -175,7 +203,7 @@ template:
 
 
 # =============================================================================
-# German translation for OCPP Connector-Status ("Happy wife, happy life")
+# German label for the OCPP connector status ("Happy wife, happy life").
 # =============================================================================
 
   - sensor:

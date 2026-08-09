@@ -31,13 +31,13 @@ recorder:
   purge_keep_days: 10  # alte Daten löschen
   exclude:
     entity_globs:
-      # --- Eastron: Roh-Quellschicht vom Pyscript (Werte liegen in den Templates) ---
+      # Eastron: Roh-Quellschicht vom Pyscript (Werte liegen in den Templates)
       - sensor.eastron_raw_*
       - sensor.eastron_10min_*
-      # --- Solis: Roh-Quellschicht vom Pyscript (Werte liegen in den Templates) ---
+      # Solis: Roh-Quellschicht vom Pyscript (Werte liegen in den Templates)
       - sensor.solis_raw_*
-      # --- Filterketten: Median/Percentile-Zwischenstufen nicht in DB schreiben.
-      #     Die _mit_glattung-Mittelwerte bleiben aufgezeichnet. ---
+      # Filterketten: Median/Percentile-Zwischenstufen nicht in DB schreiben
+      # Die _mit_glattung-Mittelwerte bleiben aufgezeichnet.
       - sensor.*_gefiltert
     entities:
       - sensor.pv_leistung_netto

@@ -157,7 +157,7 @@
         soc_battery_full: 90        # % SOC – override min_amps_start when full
 
         # --- Solar forecast safety ---
-        solar_safety_factor: 1.2    # × remaining battery capacity = min forecast
+        solar_safety_factor: 1.3    # × remaining battery capacity = min forecast
         forecast_buffer_kwh: 3      # kWh – extra headroom for restart hysteresis
 
         # --- Surplus current to start ---

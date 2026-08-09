@@ -1,12 +1,19 @@
+# BYD battery values, derived from the raw Solis states set by pyscript.
+# Every sensor carries an is_number availability guard: while a raw source is
+# missing after a restart the sensor reports "unavailable" instead of 0, so
+# energy counters see no reset spike and measurement graphs show a clean gap.
+
 template:
   - sensor:
 
+      # --- Power / voltage / current ---
       - name: "Batterie Leistung"
         unique_id: solis_batt_power
         unit_of_measurement: "W"
         device_class: power
         state_class: measurement
         icon: mdi:battery-charging-60
+        availability: "{{ is_number(states('sensor.solis_raw_batt_p')) }}"
         state: "{{ states('sensor.solis_raw_batt_p') | float(0) }}"
 
       - name: "Batterie Spannung"
@@ -15,6 +22,7 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:sine-wave
+        availability: "{{ is_number(states('sensor.solis_raw_batt_v')) }}"
         state: "{{ states('sensor.solis_raw_batt_v') | float(0) }}"
 
       - name: "Batterie Strom"
@@ -23,13 +31,16 @@ template:
         device_class: current
         state_class: measurement
         icon: mdi:current-dc
+        availability: "{{ is_number(states('sensor.solis_raw_batt_i')) }}"
         state: "{{ states('sensor.solis_raw_batt_i') | float(0) }}"
 
+      # --- State of charge / health ---
       - name: "Batterie SoC"
         unique_id: solis_batt_soc
         unit_of_measurement: "%"
         device_class: battery
         state_class: measurement
+        availability: "{{ is_number(states('sensor.solis_raw_batt_soc')) }}"
         state: "{{ states('sensor.solis_raw_batt_soc') | float(0) }}"
 
       - name: "Batterie SoH"
@@ -37,14 +48,17 @@ template:
         unit_of_measurement: "%"
         state_class: measurement
         icon: mdi:battery-heart-variant
+        availability: "{{ is_number(states('sensor.solis_raw_batt_soh')) }}"
         state: "{{ states('sensor.solis_raw_batt_soh') | float(0) }}"
 
+      # --- Energy counters ---
       - name: "Batterie Ladung Heute"
         unique_id: solis_batt_charge_today
         unit_of_measurement: "kWh"
         device_class: energy
         state_class: total_increasing
         icon: mdi:battery-arrow-up
+        availability: "{{ is_number(states('sensor.solis_raw_batt_today_charge')) }}"
         state: "{{ states('sensor.solis_raw_batt_today_charge') | float(0) }}"
 
       - name: "Batterie Entladung Heute"
@@ -53,6 +67,7 @@ template:
         device_class: energy
         state_class: total_increasing
         icon: mdi:battery-arrow-down
+        availability: "{{ is_number(states('sensor.solis_raw_batt_today_discharge')) }}"
         state: "{{ states('sensor.solis_raw_batt_today_discharge') | float(0) }}"
 
       - name: "Batterie Ladung Gesamt"
@@ -61,6 +76,7 @@ template:
         device_class: energy
         state_class: total_increasing
         icon: mdi:counter
+        availability: "{{ is_number(states('sensor.solis_raw_batt_total_charge')) }}"
         state: "{{ states('sensor.solis_raw_batt_total_charge') | float(0) }}"
 
       - name: "Batterie Entladung Gesamt"
@@ -69,4 +85,5 @@ template:
         device_class: energy
         state_class: total_increasing
         icon: mdi:counter
+        availability: "{{ is_number(states('sensor.solis_raw_batt_total_discharge')) }}"
         state: "{{ states('sensor.solis_raw_batt_total_discharge') | float(0) }}"

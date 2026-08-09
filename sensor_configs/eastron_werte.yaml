@@ -1,13 +1,20 @@
+# Eastron SDM630 values, derived from the raw states set by the sniffer
+# pyscript. Every sensor carries an is_number availability guard: while a raw
+# source is missing after a restart the sensor reports "unavailable" instead
+# of 0, so energy counters see no reset spike and measurement graphs show a
+# clean gap.
+
 template:
   - sensor:
-      # --- SPANNUNGEN L-N (3x Avg, 3x Min) ---
 
+      # --- L-N voltages (3x avg, 3x min) ---
       - name: "Netzspannung L1"
         unique_id: eastron_u1
         unit_of_measurement: "V"
         device_class: voltage
         state_class: measurement
         icon: mdi:sine-wave
+        availability: "{{ is_number(states('sensor.eastron_raw_u1')) }}"
         state: "{{ states('sensor.eastron_raw_u1') | float(0) | round(2) }}"
 
       - name: "Netzspannung L1 Min"
@@ -16,6 +23,7 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:arrow-down-bold
+        availability: "{{ is_number(states('sensor.eastron_raw_u1_min')) }}"
         state: "{{ states('sensor.eastron_raw_u1_min') | float(0) | round(2) }}"
 
       - name: "Netzspannung L2"
@@ -24,6 +32,7 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:sine-wave
+        availability: "{{ is_number(states('sensor.eastron_raw_u2')) }}"
         state: "{{ states('sensor.eastron_raw_u2') | float(0) | round(2) }}"
 
       - name: "Netzspannung L2 Min"
@@ -32,6 +41,7 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:arrow-down-bold
+        availability: "{{ is_number(states('sensor.eastron_raw_u2_min')) }}"
         state: "{{ states('sensor.eastron_raw_u2_min') | float(0) | round(2) }}"
 
       - name: "Netzspannung L3"
@@ -40,6 +50,7 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:sine-wave
+        availability: "{{ is_number(states('sensor.eastron_raw_u3')) }}"
         state: "{{ states('sensor.eastron_raw_u3') | float(0) | round(2) }}"
 
       - name: "Netzspannung L3 Min"
@@ -48,19 +59,19 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:arrow-down-bold
+        availability: "{{ is_number(states('sensor.eastron_raw_u3_min')) }}"
         state: "{{ states('sensor.eastron_raw_u3_min') | float(0) | round(2) }}"
 
-      # --- SPANNUNGEN L-L (3x Avg, 3x Min) ---
-      # Aussenleiterspannungen kennen den Neutralleiter nicht. Bleiben sie
-      # symmetrisch, waehrend L-N auseinanderlaeuft, liegt die Ursache im
-      # Sternpunkt und nicht in der Einspeisung.
-
+      # --- L-L voltages (3x avg, 3x min) ---
+      # Line-to-line voltages ignore the neutral. If they stay symmetric while
+      # L-N drifts apart, the cause is in the star point, not the supply.
       - name: "Netzspannung L1-L2"
         unique_id: eastron_u12
         unit_of_measurement: "V"
         device_class: voltage
         state_class: measurement
         icon: mdi:vector-triangle
+        availability: "{{ is_number(states('sensor.eastron_raw_u12')) }}"
         state: "{{ states('sensor.eastron_raw_u12') | float(0) | round(2) }}"
 
       - name: "Netzspannung L1-L2 Min"
@@ -69,6 +80,7 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:arrow-down-bold
+        availability: "{{ is_number(states('sensor.eastron_raw_u12_min')) }}"
         state: "{{ states('sensor.eastron_raw_u12_min') | float(0) | round(2) }}"
 
       - name: "Netzspannung L2-L3"
@@ -77,6 +89,7 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:vector-triangle
+        availability: "{{ is_number(states('sensor.eastron_raw_u23')) }}"
         state: "{{ states('sensor.eastron_raw_u23') | float(0) | round(2) }}"
 
       - name: "Netzspannung L2-L3 Min"
@@ -85,6 +98,7 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:arrow-down-bold
+        availability: "{{ is_number(states('sensor.eastron_raw_u23_min')) }}"
         state: "{{ states('sensor.eastron_raw_u23_min') | float(0) | round(2) }}"
 
       - name: "Netzspannung L3-L1"
@@ -93,6 +107,7 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:vector-triangle
+        availability: "{{ is_number(states('sensor.eastron_raw_u31')) }}"
         state: "{{ states('sensor.eastron_raw_u31') | float(0) | round(2) }}"
 
       - name: "Netzspannung L3-L1 Min"
@@ -101,20 +116,20 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:arrow-down-bold
+        availability: "{{ is_number(states('sensor.eastron_raw_u31_min')) }}"
         state: "{{ states('sensor.eastron_raw_u31_min') | float(0) | round(2) }}"
 
-      # --- SPANNUNGSSPREIZUNG (2x Avg, 2x Max) ---
-      # Jede Spreizung wird im Skript innerhalb eines Response-Frames gebildet,
-      # die drei jeweils verglichenen Spannungen stammen also aus demselben
-      # Snapshot. L-N und L-L kommen dagegen aus verschiedenen Frames und
-      # duerfen nicht gegeneinander verrechnet werden.
-
+      # --- Voltage spread (2x avg, 2x max) ---
+      # Each spread is formed within a single response frame, so the three
+      # compared voltages share one snapshot. L-N and L-L come from different
+      # frames and must not be combined.
       - name: "Spannungsspreizung L-N"
         unique_id: eastron_spread_ln
         unit_of_measurement: "V"
         device_class: voltage
         state_class: measurement
         icon: mdi:arrow-expand-vertical
+        availability: "{{ is_number(states('sensor.eastron_raw_spread_ln')) }}"
         state: "{{ states('sensor.eastron_raw_spread_ln') | float(0) | round(2) }}"
 
       - name: "Spannungsspreizung L-N Max"
@@ -123,6 +138,7 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:arrow-up-bold
+        availability: "{{ is_number(states('sensor.eastron_raw_spread_ln_max')) }}"
         state: "{{ states('sensor.eastron_raw_spread_ln_max') | float(0) | round(2) }}"
 
       - name: "Spannungsspreizung L-L"
@@ -131,6 +147,7 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:arrow-expand-vertical
+        availability: "{{ is_number(states('sensor.eastron_raw_spread_ll')) }}"
         state: "{{ states('sensor.eastron_raw_spread_ll') | float(0) | round(2) }}"
 
       - name: "Spannungsspreizung L-L Max"
@@ -139,47 +156,48 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:arrow-up-bold
+        availability: "{{ is_number(states('sensor.eastron_raw_spread_ll_max')) }}"
         state: "{{ states('sensor.eastron_raw_spread_ll_max') | float(0) | round(2) }}"
 
-      # --- SYMMETRISCHE KOMPONENTEN (2x) ---
-      # Sternpunktverschiebung: Abstand des gemessenen Neutralpunkts vom
-      # Schwerpunkt des Spannungsdreiecks, also das Nullsystem in Volt. Steigt
-      # mit unsymmetrischer Last ueber der Impedanz des Neutralleiterpfades.
-      # Gegensystem: Unsymmetrie der Versorgung selbst, unabhaengig vom
-      # Neutralleiter. EN 50160 nennt hier 2 % als Grenzwert fuer den
-      # 95-%-Wert der Wochenmessung.
-
+      # --- Symmetrical components (2x) ---
+      # Star-point shift: distance of the measured neutral from the centroid of
+      # the voltage triangle, i.e. the zero sequence in volts. Grows with
+      # unbalanced load across the neutral-path impedance. Negative sequence:
+      # unbalance of the supply itself, independent of the neutral. EN 50160
+      # sets 2 % as the limit for the 95 % value of the weekly measurement.
       - name: "Sternpunktverschiebung"
         unique_id: eastron_v0
         unit_of_measurement: "V"
         device_class: voltage
         state_class: measurement
         icon: mdi:vector-point
+        availability: "{{ is_number(states('sensor.eastron_raw_v0')) }}"
         state: "{{ states('sensor.eastron_raw_v0') | float(0) | round(2) }}"
-        # resid vom Rohsensor uebernehmen, damit es nach dem Recorder-Ausschluss
-        # von eastron_raw_* erhalten bleibt (Filter fuer gestoerte Zyklen, >0.8 V).
+        # Carry resid from the raw sensor so it survives the recorder exclusion
+        # of eastron_raw_* (filter for disturbed cycles, >0.8 V).
         attributes:
           resid: "{{ state_attr('sensor.eastron_raw_v0', 'resid') }}"
 
-      # Phantom-Status als eigenes Template, damit die Info nach dem Ausschluss
-      # von eastron_raw_* erhalten bleibt. Bewusst OHNE net_avg/net_avg_n:
-      # das Gleitmittel wird offline aus p1/p2/p3 rekonstruiert, nicht geloggt.
+      # Phantom status as its own template so the info survives the recorder
+      # exclusion of eastron_raw_*. Deliberately without net_avg/net_avg_n: the
+      # sliding mean is reconstructed offline from p1/p2/p3, not logged.
       - name: "Phantom Aktiv"
         unique_id: eastron_phantom_active
         icon: mdi:ghost
         state: "{{ states('sensor.eastron_raw_phantom_active') }}"
 
-      # Projektion der Sternpunktverschiebung auf die drei Phasenachsen.
-      # Positiv = diese Phase wird durch die Verschiebung angehoben, negativ
-      # = abgesenkt. Isoliert den Nullsystemanteil (im Gegensatz zu
-      # "Phasenspannung minus Mittel", das auch das Gegensystem enthaelt).
-      # Roh-States seit Sniffer 5.10.0 aus star_point_vector().
+      # Projection of the star-point shift onto the three phase axes. Positive =
+      # this phase is raised by the shift, negative = lowered. Isolates the
+      # zero-sequence part (unlike "phase voltage minus mean", which also holds
+      # the negative sequence). Raw states from star_point_vector() since
+      # sniffer 5.10.0.
       - name: "Sternpunkt Projektion L1"
         unique_id: eastron_v0_l1
         unit_of_measurement: "V"
         device_class: voltage
         state_class: measurement
         icon: mdi:vector-line
+        availability: "{{ is_number(states('sensor.eastron_raw_v0_l1')) }}"
         state: "{{ states('sensor.eastron_raw_v0_l1') | float(0) | round(2) }}"
 
       - name: "Sternpunkt Projektion L2"
@@ -188,6 +206,7 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:vector-line
+        availability: "{{ is_number(states('sensor.eastron_raw_v0_l2')) }}"
         state: "{{ states('sensor.eastron_raw_v0_l2') | float(0) | round(2) }}"
 
       - name: "Sternpunkt Projektion L3"
@@ -196,6 +215,7 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:vector-line
+        availability: "{{ is_number(states('sensor.eastron_raw_v0_l3')) }}"
         state: "{{ states('sensor.eastron_raw_v0_l3') | float(0) | round(2) }}"
 
       - name: "Gegensystem Unsymmetrie"
@@ -203,33 +223,34 @@ template:
         unit_of_measurement: "%"
         state_class: measurement
         icon: mdi:scale-unbalanced
+        availability: "{{ is_number(states('sensor.eastron_raw_u2_pct')) }}"
         state: "{{ states('sensor.eastron_raw_u2_pct') | float(0) | round(2) }}"
 
-      # --- NETZFREQUENZ (1x) ---
-      # Register 70, nur vorhanden wenn der Wechselrichter einen Block liest,
-      # der es abdeckt. Bewusst kein 10-Minuten-Mittel: IEC 61000-4-30 bildet
-      # die Frequenz aus Periodenzaehlung ueber 10 s, nicht aus Mittelwerten.
-
+      # --- Grid frequency (1x) ---
+      # Register 70, only present when the inverter reads a block covering it.
+      # Deliberately no 10-minute mean: IEC 61000-4-30 derives frequency from
+      # period counting over 10 s, not from averages.
       - name: "Netzfrequenz"
         unique_id: eastron_freq
         unit_of_measurement: "Hz"
         device_class: frequency
         state_class: measurement
         icon: mdi:sine-wave
+        availability: "{{ is_number(states('sensor.eastron_raw_freq')) }}"
         state: "{{ states('sensor.eastron_raw_freq') | float(0) | round(3) }}"
 
-      # --- 10-MINUTEN-MITTEL NACH EN 50160 (8x) ---
-      # Feste, aufeinanderfolgende 10-Minuten-Bloecke, im Skript quadratisch
-      # gemittelt. Grundlage fuer die 95-%-Auswertung der Wochenmessung:
-      # Spannung 230 V +10 % / -10 %, Gegensystem 2 %.
-      # Das Attribut samples zeigt, auf wie vielen Werten der Block beruht.
-
+      # --- 10-minute means per EN 50160 (8x) ---
+      # Fixed consecutive 10-minute blocks, RMS-averaged in the script. Basis
+      # for the 95 % evaluation of the weekly measurement: voltage 230 V
+      # +10 %/-10 %, negative sequence 2 %. The samples attribute shows how many
+      # values the block is based on.
       - name: "Netzspannung L1 10min"
         unique_id: eastron_u1_10min
         unit_of_measurement: "V"
         device_class: voltage
         state_class: measurement
         icon: mdi:chart-timeline-variant
+        availability: "{{ is_number(states('sensor.eastron_10min_u1')) }}"
         state: "{{ states('sensor.eastron_10min_u1') | float(0) | round(2) }}"
         attributes:
           samples: "{{ state_attr('sensor.eastron_10min_u1', 'samples') }}"
@@ -240,6 +261,7 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:chart-timeline-variant
+        availability: "{{ is_number(states('sensor.eastron_10min_u2')) }}"
         state: "{{ states('sensor.eastron_10min_u2') | float(0) | round(2) }}"
         attributes:
           samples: "{{ state_attr('sensor.eastron_10min_u2', 'samples') }}"
@@ -250,6 +272,7 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:chart-timeline-variant
+        availability: "{{ is_number(states('sensor.eastron_10min_u3')) }}"
         state: "{{ states('sensor.eastron_10min_u3') | float(0) | round(2) }}"
         attributes:
           samples: "{{ state_attr('sensor.eastron_10min_u3', 'samples') }}"
@@ -260,6 +283,7 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:chart-timeline-variant
+        availability: "{{ is_number(states('sensor.eastron_10min_u12')) }}"
         state: "{{ states('sensor.eastron_10min_u12') | float(0) | round(2) }}"
         attributes:
           samples: "{{ state_attr('sensor.eastron_10min_u12', 'samples') }}"
@@ -270,6 +294,7 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:chart-timeline-variant
+        availability: "{{ is_number(states('sensor.eastron_10min_u23')) }}"
         state: "{{ states('sensor.eastron_10min_u23') | float(0) | round(2) }}"
         attributes:
           samples: "{{ state_attr('sensor.eastron_10min_u23', 'samples') }}"
@@ -280,6 +305,7 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:chart-timeline-variant
+        availability: "{{ is_number(states('sensor.eastron_10min_u31')) }}"
         state: "{{ states('sensor.eastron_10min_u31') | float(0) | round(2) }}"
         attributes:
           samples: "{{ state_attr('sensor.eastron_10min_u31', 'samples') }}"
@@ -290,6 +316,7 @@ template:
         device_class: voltage
         state_class: measurement
         icon: mdi:vector-point
+        availability: "{{ is_number(states('sensor.eastron_10min_v0')) }}"
         state: "{{ states('sensor.eastron_10min_v0') | float(0) | round(2) }}"
         attributes:
           samples: "{{ state_attr('sensor.eastron_10min_v0', 'samples') }}"
@@ -299,18 +326,19 @@ template:
         unit_of_measurement: "%"
         state_class: measurement
         icon: mdi:scale-unbalanced
+        availability: "{{ is_number(states('sensor.eastron_10min_u2_pct')) }}"
         state: "{{ states('sensor.eastron_10min_u2_pct') | float(0) | round(2) }}"
         attributes:
           samples: "{{ state_attr('sensor.eastron_10min_u2_pct', 'samples') }}"
 
-      # --- STRÖME (3x Avg, 3x Max) ---
-
+      # --- Currents (3x avg, 3x max) ---
       - name: "Netzstrom L1"
         unique_id: eastron_i1
         unit_of_measurement: "A"
         device_class: current
         state_class: measurement
         icon: mdi:current-ac
+        availability: "{{ is_number(states('sensor.eastron_raw_i1')) }}"
         state: "{{ states('sensor.eastron_raw_i1') | float(0) | round(2) }}"
 
       - name: "Netzstrom L1 Max"
@@ -319,6 +347,7 @@ template:
         device_class: current
         state_class: measurement
         icon: mdi:arrow-up-bold
+        availability: "{{ is_number(states('sensor.eastron_raw_i1_max')) }}"
         state: "{{ states('sensor.eastron_raw_i1_max') | float(0) | round(2) }}"
 
       - name: "Netzstrom L2"
@@ -327,6 +356,7 @@ template:
         device_class: current
         state_class: measurement
         icon: mdi:current-ac
+        availability: "{{ is_number(states('sensor.eastron_raw_i2')) }}"
         state: "{{ states('sensor.eastron_raw_i2') | float(0) | round(2) }}"
 
       - name: "Netzstrom L2 Max"
@@ -335,6 +365,7 @@ template:
         device_class: current
         state_class: measurement
         icon: mdi:arrow-up-bold
+        availability: "{{ is_number(states('sensor.eastron_raw_i2_max')) }}"
         state: "{{ states('sensor.eastron_raw_i2_max') | float(0) | round(2) }}"
 
       - name: "Netzstrom L3"
@@ -343,6 +374,7 @@ template:
         device_class: current
         state_class: measurement
         icon: mdi:current-ac
+        availability: "{{ is_number(states('sensor.eastron_raw_i3')) }}"
         state: "{{ states('sensor.eastron_raw_i3') | float(0) | round(2) }}"
 
       - name: "Netzstrom L3 Max"
@@ -351,18 +383,18 @@ template:
         device_class: current
         state_class: measurement
         icon: mdi:arrow-up-bold
+        availability: "{{ is_number(states('sensor.eastron_raw_i3_max')) }}"
         state: "{{ states('sensor.eastron_raw_i3_max') | float(0) | round(2) }}"
 
-      # --- LEISTUNGEN (3x Phasen, 1x Gesamt) ---
-      # Das Vorzeichen dreht bereits das Skript: negativ = Einspeisung,
-      # positiv = Bezug.
-
+      # --- Power (3x phase, 1x total) ---
+      # The script already flips the sign: negative = export, positive = import.
       - name: "Netzleistung L1"
         unique_id: eastron_p1
         unit_of_measurement: "W"
         device_class: power
         state_class: measurement
         icon: mdi:flash
+        availability: "{{ is_number(states('sensor.eastron_raw_p1')) }}"
         state: "{{ states('sensor.eastron_raw_p1') | float(0) | round(1) }}"
 
       - name: "Netzleistung L2"
@@ -371,6 +403,7 @@ template:
         device_class: power
         state_class: measurement
         icon: mdi:flash
+        availability: "{{ is_number(states('sensor.eastron_raw_p2')) }}"
         state: "{{ states('sensor.eastron_raw_p2') | float(0) | round(1) }}"
 
       - name: "Netzleistung L3"
@@ -379,6 +412,7 @@ template:
         device_class: power
         state_class: measurement
         icon: mdi:flash
+        availability: "{{ is_number(states('sensor.eastron_raw_p3')) }}"
         state: "{{ states('sensor.eastron_raw_p3') | float(0) | round(1) }}"
 
       - name: "Netzleistung Gesamt"
@@ -387,22 +421,23 @@ template:
         device_class: power
         state_class: measurement
         icon: mdi:home-import-export
+        availability: "{{ is_number(states('sensor.eastron_raw_p_tot')) }}"
         state: "{{ states('sensor.eastron_raw_p_tot') | float(0) | round(1) }}"
 
-      # --- BLIND- UND SCHEINLEISTUNG, LEISTUNGSFAKTOR (11x) ---
-      # Blindleistung ist der zweite Freiheitsgrad im Spannungshub
-      # dU = (R*P + X*Q) / U und erlaubt es, Wirk- und Blindwiderstand der
-      # Zuleitung getrennt zu schaetzen. Vorzeichen wie bei der Wirkleistung:
-      # negativ = Abgabe ans Netz. Die Scheinleistung ist ein Betrag und
-      # bleibt positiv; ihre Differenz zu sqrt(P^2+Q^2) ist die
-      # Verzerrungsleistung und damit ein Indikator fuer Stromoberschwingungen.
-
+      # --- Reactive / apparent power and power factor (11x) ---
+      # Reactive power is the second degree of freedom in the voltage drop
+      # dU = (R*P + X*Q) / U and lets the resistive and reactive parts of the
+      # feeder be estimated separately. Sign as for active power: negative =
+      # export. Apparent power is a magnitude and stays positive; its
+      # difference to sqrt(P^2+Q^2) is the distortion power, an indicator for
+      # current harmonics.
       - name: "Blindleistung L1"
         unique_id: eastron_q1
         unit_of_measurement: "var"
         device_class: reactive_power
         state_class: measurement
         icon: mdi:sine-wave
+        availability: "{{ is_number(states('sensor.eastron_raw_q1')) }}"
         state: "{{ states('sensor.eastron_raw_q1') | float(0) | round(1) }}"
 
       - name: "Blindleistung L2"
@@ -411,6 +446,7 @@ template:
         device_class: reactive_power
         state_class: measurement
         icon: mdi:sine-wave
+        availability: "{{ is_number(states('sensor.eastron_raw_q2')) }}"
         state: "{{ states('sensor.eastron_raw_q2') | float(0) | round(1) }}"
 
       - name: "Blindleistung L3"
@@ -419,6 +455,7 @@ template:
         device_class: reactive_power
         state_class: measurement
         icon: mdi:sine-wave
+        availability: "{{ is_number(states('sensor.eastron_raw_q3')) }}"
         state: "{{ states('sensor.eastron_raw_q3') | float(0) | round(1) }}"
 
       - name: "Blindleistung Gesamt"
@@ -427,6 +464,7 @@ template:
         device_class: reactive_power
         state_class: measurement
         icon: mdi:sine-wave
+        availability: "{{ is_number(states('sensor.eastron_raw_q_tot')) }}"
         state: "{{ states('sensor.eastron_raw_q_tot') | float(0) | round(1) }}"
 
       - name: "Scheinleistung L1"
@@ -435,6 +473,7 @@ template:
         device_class: apparent_power
         state_class: measurement
         icon: mdi:flash-outline
+        availability: "{{ is_number(states('sensor.eastron_raw_va1')) }}"
         state: "{{ states('sensor.eastron_raw_va1') | float(0) | round(1) }}"
 
       - name: "Scheinleistung L2"
@@ -443,6 +482,7 @@ template:
         device_class: apparent_power
         state_class: measurement
         icon: mdi:flash-outline
+        availability: "{{ is_number(states('sensor.eastron_raw_va2')) }}"
         state: "{{ states('sensor.eastron_raw_va2') | float(0) | round(1) }}"
 
       - name: "Scheinleistung L3"
@@ -451,6 +491,7 @@ template:
         device_class: apparent_power
         state_class: measurement
         icon: mdi:flash-outline
+        availability: "{{ is_number(states('sensor.eastron_raw_va3')) }}"
         state: "{{ states('sensor.eastron_raw_va3') | float(0) | round(1) }}"
 
       - name: "Scheinleistung Gesamt"
@@ -459,6 +500,7 @@ template:
         device_class: apparent_power
         state_class: measurement
         icon: mdi:flash-outline
+        availability: "{{ is_number(states('sensor.eastron_raw_va_tot')) }}"
         state: "{{ states('sensor.eastron_raw_va_tot') | float(0) | round(1) }}"
 
       - name: "Leistungsfaktor L1"
@@ -466,6 +508,7 @@ template:
         device_class: power_factor
         state_class: measurement
         icon: mdi:angle-acute
+        availability: "{{ is_number(states('sensor.eastron_raw_pf1')) }}"
         state: "{{ states('sensor.eastron_raw_pf1') | float(0) | round(3) }}"
 
       - name: "Leistungsfaktor L2"
@@ -473,6 +516,7 @@ template:
         device_class: power_factor
         state_class: measurement
         icon: mdi:angle-acute
+        availability: "{{ is_number(states('sensor.eastron_raw_pf2')) }}"
         state: "{{ states('sensor.eastron_raw_pf2') | float(0) | round(3) }}"
 
       - name: "Leistungsfaktor L3"
@@ -480,19 +524,20 @@ template:
         device_class: power_factor
         state_class: measurement
         icon: mdi:angle-acute
+        availability: "{{ is_number(states('sensor.eastron_raw_pf3')) }}"
         state: "{{ states('sensor.eastron_raw_pf3') | float(0) | round(3) }}"
 
-      # --- ENERGIE (Zaehlerstaende) ---
-      # Die Phantomkorrektur im Skript liefert bereits bereinigte, monoton
-      # steigende Werte. Drei Nachkommastellen entsprechen 1 Wh und damit der
-      # float32-Aufloesung der Zaehlerregister.
-
+      # --- Energy (meter readings) ---
+      # The phantom correction in the script already delivers cleaned, monotonic
+      # values. Three decimals equal 1 Wh, matching the float32 resolution of
+      # the meter registers.
       - name: "Netzbezug Gesamt"
         unique_id: eastron_energy_import
         unit_of_measurement: "kWh"
         device_class: energy
         state_class: total_increasing
         icon: mdi:transmission-tower-export
+        availability: "{{ is_number(states('sensor.eastron_raw_e_imp')) }}"
         state: "{{ states('sensor.eastron_raw_e_imp') | float(0) | round(3) }}"
 
       - name: "Netzeinspeisung Gesamt"
@@ -501,19 +546,20 @@ template:
         device_class: energy
         state_class: total_increasing
         icon: mdi:transmission-tower-import
+        availability: "{{ is_number(states('sensor.eastron_raw_e_exp')) }}"
         state: "{{ states('sensor.eastron_raw_e_exp') | float(0) | round(3) }}"
 
 # ---------------------------------------------------------------------------
-# Taegliche Energiezaehler als utility_meter statt getriggertem Template.
-# Robuster Tagesreset (00:00 lokal) und Wiederherstellung nach Neustart sind
-# hier eingebaut. entity_ids bleiben sensor.netzbezug_taeglich /
-# sensor.netzeinspeisung_taeglich - Export und Dashboard aendern sich nicht.
+# Daily energy counters as utility_meter instead of a triggered template.
+# Robust daily reset (00:00 local) and restore after restart are built in.
+# entity_ids stay sensor.netzbezug_taeglich / sensor.netzeinspeisung_taeglich,
+# so export and dashboard are unchanged.
 #
-# HINWEIS ZUR PLATZIERUNG: utility_meter ist eine eigene Top-Level-Domain.
-# Das funktioniert hier, weil diese Datei bereits mit der Top-Level-Domain
-# 'template:' eingebunden ist (Package- bzw. Root-Include). Wird die Datei
-# stattdessen als reines 'template: !include' eingebunden, gehoeren die vier
-# Zeilen unten in die configuration.yaml (oder ein Package).
+# PLACEMENT NOTE: utility_meter is its own top-level domain. This works here
+# because the file is already included with the top-level 'template:' domain
+# (package / root include). If the file is instead included as a plain
+# 'template: !include', the four blocks below belong in configuration.yaml
+# (or a package).
 # ---------------------------------------------------------------------------
 
 utility_meter:
@@ -529,4 +575,3 @@ utility_meter:
     source: sensor.netzeinspeisung_gesamt
     cycle: daily
     periodically_resetting: false
-

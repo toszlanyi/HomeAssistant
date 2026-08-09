@@ -1,34 +1,6 @@
 # ============================================================================
 # Version 5.10.3
 # ============================================================================
-# CHANGELOG
-#   5.10.2  The phantom net power test now runs on a rolling mean over
-#           PHANTOM_AVG_WINDOW_S instead of on a single cycle. Regulation
-#           swings around zero average out, a real flow does not, which
-#           separates the two by frequency rather than by magnitude and needs
-#           no additional sensor. combined_net_power() split into
-#           combined_net() plus a thin wrapper so the two inputs can be
-#           averaged separately. New net_avg attribute on
-#           eastron_raw_phantom_active. Published power sensors unchanged.
-#   5.10.1  Docstrings condensed. Absolute sample counts replaced by the
-#           underlying register update rates, which do not change when
-#           SNIFF_DURATION or TRIGGER_SPEC are retuned.
-#   5.10.0  star_point_shift() superseded by star_point_vector(), which also
-#           returns the projection of the displacement onto each phase axis
-#           and the trilateration residual. New sensors eastron_raw_v0_l1,
-#           _l2, _l3; new resid attribute on eastron_raw_v0; new samples
-#           attribute on every min/max sensor. A law-of-cosines consistency
-#           check was evaluated and dropped: for a near-symmetric system the
-#           cosine sits near -0.5 and would have to more than double to leave
-#           the valid range, so it never triggers on real data. The
-#           trilateration residual measures the same thing in volts and is
-#           already computed.
-#   5.9.1   Energy counters rounded to three decimals, matching the float32
-#           resolution of the registers at their current magnitude.
-#   5.9.0   Star point shift, negative sequence unbalance, EN 50160 ten
-#           minute aggregation, frequency, reactive and apparent power,
-#           power factor.
-# ============================================================================
 # Sniffs the Modbus communication between inverter and smart meter, mirrored
 # passively by a Waveshare RS485 TO ETH (B). The bus carries Modbus TCP, so
 # frames start with an MBAP header and the parser locks onto the unit id and
@@ -233,8 +205,10 @@ def init_on_startup():
     task.sleep(10)
 
     try:
-        imp = state.get('sensor.eastron_raw_e_imp')
-        exp = state.get('sensor.eastron_raw_e_exp')
+        # Import current states of the template sensors resulting from *_raw_e_*
+        # to initialize *_last_good. Raw sensors are excluded from recorder.
+        imp = state.get('sensor.netzbezug_gesamt')
+        exp = state.get('sensor.netzeinspeisung_gesamt')
 
         # offset_initialized stays False until startup succeeded.
         # last_good is only set when real values are loaded, so the
