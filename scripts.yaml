@@ -1,0 +1,12 @@
+# PC über Aktion von System_Bridge runter fahren
+
+shutdown_tuxedo_pc:
+  alias: Shutdown Tuxedo-PC
+  icon: mdi:laptop-off
+  mode: single
+  sequence:
+    - action: system_bridge.power_command
+      data:
+        bridge: !secret tuxedo_bridge_id
+        command: shutdown
+      response_variable: shutdown_result
